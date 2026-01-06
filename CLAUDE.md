@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**whatsapp-evidence** is a CLI tool for legal documentation in Brazil. Converts WhatsApp audio files (.opus) and screenshot images (.jpg) into structured markdown documents suitable for use as legal evidence. All output is in Portuguese (Brazilian).
+**whatsapp-evidence** is a CLI tool for legal documentation in Brazil. Converts WhatsApp audio files (.opus), video files (.mp4), and screenshot images (.jpg) into structured markdown documents suitable for use as legal evidence. All output is in Portuguese (Brazilian).
 
 ## Commands
 
@@ -44,7 +44,7 @@ bun run check
 
 ```
 index.ts              # CLI entry point, argument parsing, orchestration
-├── transcribe-audio.ts   # ElevenLabs API for .opus → markdown
+├── transcribe-audio.ts   # ElevenLabs API for .opus/.mp4 → markdown
 ├── transcribe-images.ts  # BAML vision (OpenAI) for .jpg → markdown
 └── shared.ts             # Common utilities, types, file discovery
 
@@ -58,7 +58,7 @@ baml_client/          # Auto-generated TypeScript client (from BAML)
 
 ### Processing Flow
 
-1. **Audio (.opus)**: Convert to MP3 via ffmpeg → ElevenLabs speech-to-text → markdown with speaker diarization
+1. **Audio/Video (.opus, .mp4)**: Convert to MP3 via ffmpeg → ElevenLabs speech-to-text → markdown with speaker diarization
 2. **Images (.jpg)**: Base64 encode → BAML vision (OpenAI GPT) → structured extraction → markdown
 
 ### Key Design Decisions
