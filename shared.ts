@@ -14,6 +14,11 @@ export const LEGAL_DISCLAIMER = `> **Aviso Legal:** Esta transcrição foi produ
 
 // ===== Types =====
 
+export interface FileMetadata {
+	birthtime: Date;
+	mtime: Date;
+}
+
 export interface ProcessingStats {
 	total: number;
 	pending: number;
@@ -71,6 +76,18 @@ export function getFilename(filePath: string): string {
  */
 export function getMdPath(filePath: string): string {
 	return filePath.replace(/\.[^.]+$/, ".md");
+}
+
+/**
+ * Get file metadata (creation and modification dates)
+ */
+export async function getFileMetadata(filePath: string): Promise<FileMetadata> {
+	const file = Bun.file(filePath);
+	const stat = await file.stat();
+	return {
+		birthtime: stat.birthtime,
+		mtime: stat.mtime,
+	};
 }
 
 // ===== Processing Orchestrator =====
