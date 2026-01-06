@@ -1,0 +1,25 @@
+{
+	"name": "whatsapp-evidence",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"check": "biome check --write",
+		"baml:generate": "bunx @boundaryml/baml generate",
+		"transcribe": "bun index.ts",
+		"transcribe:audio": "bun index.ts --audio",
+		"transcribe:images": "bun index.ts --images",
+		"cleanup": "bun cleanup-md.ts"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.11",
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@boundaryml/baml": "^0.214.0"
+	}
+}
