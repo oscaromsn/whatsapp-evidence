@@ -1,6 +1,6 @@
 # whatsapp-evidence
 
-A command-line tool for converting WhatsApp audio messages and screenshots into structured markdown documents suitable for legal proceedings in Brazil.
+A command-line tool for converting WhatsApp audio messages, video messages, and screenshots into structured markdown documents suitable for legal proceedings in Brazil.
 
 ## Problem
 
@@ -15,8 +15,8 @@ WhatsApp conversations are increasingly used as evidence in legal cases. However
 
 This tool automates the conversion of WhatsApp media into professionally formatted markdown documents:
 
-**Audio Transcription**
-- Converts `.opus` voice messages to text using ElevenLabs speech-to-text
+**Audio/Video Transcription**
+- Converts `.opus` voice messages and `.mp4` video messages to text using ElevenLabs speech-to-text
 - Includes speaker diarization (identifies different speakers)
 - Preserves timestamps for each utterance
 - Outputs structured markdown with full metadata
@@ -129,7 +129,8 @@ total_mensagens: 5
 ## File Naming Convention
 
 WhatsApp exports files with predictable naming:
-- Audio: `PTT-YYYYMMDD-WA####.opus`
+- Audio: `PTT-YYYYMMDD-WA####.opus` or `AUD-YYYYMMDD-WA####.opus`
+- Video: `VID-YYYYMMDD-WA####.mp4`
 - Images: `IMG-YYYYMMDD-WA####.jpg`
 
 The date in the filename is used to resolve relative date references ("HOJE", "ONTEM") in screenshots.

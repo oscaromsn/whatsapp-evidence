@@ -1,12 +1,14 @@
 // =============================================================================
 // Audio Transcription Module - ElevenLabs Speech-to-Text
-// Converts WhatsApp .opus audio files to markdown transcriptions
+// Converts WhatsApp .opus audio and .mp4 video files to markdown transcriptions
 // =============================================================================
 
 import {
 	CONFIG,
+	type FileMetadata,
 	filterPendingFiles,
 	findFiles,
+	getFileMetadata,
 	getFilename,
 	getMdPath,
 	LEGAL_DISCLAIMER,
@@ -20,7 +22,7 @@ const AUDIO_CONFIG = {
 	API_URL: "https://api.elevenlabs.io/v1/speech-to-text",
 	MODEL_ID: "scribe_v1",
 	LANGUAGE_CODE: "pt",
-	EXTENSION: "opus",
+	EXTENSIONS: ["opus", "mp4"],
 } as const;
 
 // ===== Type Definitions =====
@@ -46,6 +48,7 @@ interface AudioTranscriptionResult {
 	sourceFile: string;
 	transcription: ElevenLabsTranscription;
 	processedAt: Date;
+	fileMetadata: FileMetadata;
 }
 
 interface Utterance {
@@ -65,19 +68,20 @@ let currentOptions: TranscribeOptions = {};
 // ===== Audio Processing Functions =====
 
 /**
- * Convert OPUS to MP3 using ffmpeg
+ * Convert audio/video file to MP3 using ffmpeg
+ * Supports .opus audio and .mp4 video (extracts audio track)
  */
-async function convertOpusToMp3(opusPath: string): Promise<string> {
-	const filename = getFilename(opusPath).replace(".opus", ".mp3");
+async function convertToMp3(inputPath: string): Promise<string> {
+	const filename = getFilename(inputPath).replace(/\.[^.]+$/, ".mp3");
 	const tempDir = CONFIG.TEMP_DIR;
 	const mp3Path = `${tempDir}/${filename}`;
 
 	// Ensure temp directory exists
 	await Bun.$`mkdir -p ${tempDir}`.quiet();
 
-	// Convert with ffmpeg
+	// Convert with ffmpeg (auto-detects input format)
 	const result =
-		await Bun.$`ffmpeg -y -i ${opusPath} -codec:a libmp3lame -qscale:a 2 ${mp3Path}`.quiet();
+		await Bun.$`ffmpeg -y -i ${inputPath} -codec:a libmp3lame -qscale:a 2 ${mp3Path}`.quiet();
 
 	if (result.exitCode !== 0) {
 		throw new Error(`ffmpeg failed: ${result.stderr.toString()}`);
@@ -145,7 +149,7 @@ function formatTimestamp(seconds: number | null): string {
  * Format transcription as legal-style markdown document
  */
 function formatAudioAsMarkdown(result: AudioTranscriptionResult): string {
-	const { sourceFile, transcription, processedAt } = result;
+	const { sourceFile, transcription, processedAt, fileMetadata } = result;
 	const filename = getFilename(sourceFile);
 
 	// Group words by speaker for formatted output
@@ -180,6 +184,8 @@ function formatAudioAsMarkdown(result: AudioTranscriptionResult): string {
 	const lines: string[] = [
 		"---",
 		`arquivo_origem: "${filename}"`,
+		`data_criacao_arquivo: "${fileMetadata.birthtime.toISOString()}"`,
+		`data_modificacao_arquivo: "${fileMetadata.mtime.toISOString()}"`,
 		`data_transcricao: "${processedAt.toISOString()}"`,
 		`idioma_detectado: "${transcription.language_code}"`,
 		`probabilidade_idioma: ${(transcription.language_probability * 100).toFixed(1)}%`,
@@ -191,6 +197,8 @@ function formatAudioAsMarkdown(result: AudioTranscriptionResult): string {
 		"## Metadados",
 		"",
 		`- **Arquivo de origem:** \`${filename}\``,
+		`- **Data de criação do arquivo:** ${fileMetadata.birthtime.toLocaleDateString("pt-BR")} às ${fileMetadata.birthtime.toLocaleTimeString("pt-BR")}`,
+		`- **Data de modificação do arquivo:** ${fileMetadata.mtime.toLocaleDateString("pt-BR")} às ${fileMetadata.mtime.toLocaleTimeString("pt-BR")}`,
 		`- **Data da transcrição:** ${processedAt.toLocaleDateString("pt-BR")} às ${processedAt.toLocaleTimeString("pt-BR")}`,
 		`- **Idioma detectado:** ${transcription.language_code} (${(transcription.language_probability * 100).toFixed(1)}% de confiança)`,
 		"",
@@ -221,18 +229,18 @@ function formatAudioAsMarkdown(result: AudioTranscriptionResult): string {
 }
 
 /**
- * Process a single opus file end-to-end
+ * Process a single audio/video file end-to-end
  */
-async function processAudioFile(opusPath: string): Promise<void> {
-	const filename = getFilename(opusPath);
+async function processAudioFile(audioPath: string): Promise<void> {
+	const filename = getFilename(audioPath);
 	console.log(`\n[Processando] ${filename}`);
 
 	let mp3Path: string | null = null;
 
 	try {
-		// Step 1: Convert OPUS to MP3
+		// Step 1: Convert to MP3 (works for .opus and .mp4)
 		console.log("  -> Convertendo para MP3...");
-		mp3Path = await convertOpusToMp3(opusPath);
+		mp3Path = await convertToMp3(audioPath);
 
 		// Step 2: Transcribe with ElevenLabs
 		console.log("  -> Enviando para transcrição...");
@@ -240,14 +248,16 @@ async function processAudioFile(opusPath: string): Promise<void> {
 
 		// Step 3: Format and save markdown
 		console.log("  -> Salvando transcrição...");
+		const fileMetadata = await getFileMetadata(audioPath);
 		const result: AudioTranscriptionResult = {
-			sourceFile: opusPath,
+			sourceFile: audioPath,
 			transcription,
 			processedAt: new Date(),
+			fileMetadata,
 		};
 
 		const markdown = formatAudioAsMarkdown(result);
-		const mdPath = getMdPath(opusPath);
+		const mdPath = getMdPath(audioPath);
 		await Bun.write(mdPath, markdown);
 
 		console.log(`  -> Concluído: ${getFilename(mdPath)}`);
@@ -276,7 +286,8 @@ export async function transcribeAudio(
 	// Set module-level options for use in formatting
 	currentOptions = options;
 
-	console.log("Buscando arquivos de áudio (.opus)...");
+	const extList = AUDIO_CONFIG.EXTENSIONS.map((e) => `.${e}`).join(", ");
+	console.log(`Buscando arquivos de áudio (${extList})...`);
 
 	// Validate API key
 	if (!process.env.ELEVENLABS_API_KEY) {
@@ -287,9 +298,14 @@ export async function transcribeAudio(
 	// Ensure temp directory exists
 	await Bun.$`mkdir -p ${CONFIG.TEMP_DIR}`.quiet();
 
-	// Find all opus files
-	const allFiles = await findFiles(sourceDir, AUDIO_CONFIG.EXTENSION);
-	console.log(`  Encontrados: ${allFiles.length} arquivos .opus`);
+	// Find all audio/video files
+	const allFiles: string[] = [];
+	for (const ext of AUDIO_CONFIG.EXTENSIONS) {
+		const files = await findFiles(sourceDir, ext);
+		allFiles.push(...files);
+	}
+	allFiles.sort();
+	console.log(`  Encontrados: ${allFiles.length} arquivos`);
 
 	if (allFiles.length === 0) {
 		return { total: 0, pending: 0, processed: 0, errors: 0, skipped: 0 };

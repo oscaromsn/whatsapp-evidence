@@ -14,8 +14,10 @@ import {
 } from "./baml_client";
 import {
 	CONFIG,
+	type FileMetadata,
 	filterPendingFiles,
 	findFiles,
+	getFileMetadata,
 	getFilename,
 	getMdPath,
 	LEGAL_DISCLAIMER,
@@ -35,6 +37,7 @@ interface ImageTranscriptionResult {
 	sourceFile: string;
 	extraction: WhatsAppScreenshot;
 	processedAt: Date;
+	fileMetadata: FileMetadata;
 }
 
 export interface TranscribeOptions {
@@ -153,7 +156,7 @@ function formatMessage(message: WhatsAppMessage): string[] {
  * Format extraction result as legal-style markdown document
  */
 function formatImageAsMarkdown(result: ImageTranscriptionResult): string {
-	const { sourceFile, extraction, processedAt } = result;
+	const { sourceFile, extraction, processedAt, fileMetadata } = result;
 	const filename = getFilename(sourceFile);
 
 	// Count inferred dates
@@ -164,6 +167,8 @@ function formatImageAsMarkdown(result: ImageTranscriptionResult): string {
 	const lines: string[] = [
 		"---",
 		`arquivo_origem: "${filename}"`,
+		`data_criacao_arquivo: "${fileMetadata.birthtime.toISOString()}"`,
+		`data_modificacao_arquivo: "${fileMetadata.mtime.toISOString()}"`,
 		`data_extracao: "${processedAt.toISOString()}"`,
 		`chat: "${extraction.chat_name}"`,
 		`tipo_chat: "${extraction.chat_type}"`,
@@ -176,6 +181,8 @@ function formatImageAsMarkdown(result: ImageTranscriptionResult): string {
 		"## Metadados",
 		"",
 		`- **Arquivo de origem:** \`${filename}\``,
+		`- **Data de criação do arquivo:** ${fileMetadata.birthtime.toLocaleDateString("pt-BR")} às ${fileMetadata.birthtime.toLocaleTimeString("pt-BR")}`,
+		`- **Data de modificação do arquivo:** ${fileMetadata.mtime.toLocaleDateString("pt-BR")} às ${fileMetadata.mtime.toLocaleTimeString("pt-BR")}`,
 		`- **Data da extração:** ${processedAt.toLocaleDateString("pt-BR")} às ${processedAt.toLocaleTimeString("pt-BR")}`,
 		`- **Chat:** ${extraction.chat_name}`,
 		`- **Tipo:** ${extraction.chat_type === "group" ? "Grupo" : "Conversa individual"}`,
@@ -263,10 +270,12 @@ async function processImageFile(jpgPath: string): Promise<void> {
 
 		// Step 2: Format and save markdown
 		console.log("  -> Salvando transcrição...");
+		const fileMetadata = await getFileMetadata(jpgPath);
 		const result: ImageTranscriptionResult = {
 			sourceFile: jpgPath,
 			extraction,
 			processedAt: new Date(),
+			fileMetadata,
 		};
 
 		const markdown = formatImageAsMarkdown(result);
