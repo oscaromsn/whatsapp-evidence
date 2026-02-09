@@ -1,6 +1,6 @@
 // =============================================================================
 // Audio Transcription Module - ElevenLabs Speech-to-Text
-// Converts WhatsApp .opus audio and .mp4 video files to markdown transcriptions
+// Converts WhatsApp .opus/.m4a audio and .mp4 video files to markdown transcriptions
 // =============================================================================
 
 import {
@@ -22,7 +22,7 @@ const AUDIO_CONFIG = {
 	API_URL: "https://api.elevenlabs.io/v1/speech-to-text",
 	MODEL_ID: "scribe_v1",
 	LANGUAGE_CODE: "pt",
-	EXTENSIONS: ["opus", "mp4"],
+	EXTENSIONS: ["opus", "mp4", "m4a"],
 } as const;
 
 // ===== Type Definitions =====
@@ -69,7 +69,7 @@ let currentOptions: TranscribeOptions = {};
 
 /**
  * Convert audio/video file to MP3 using ffmpeg
- * Supports .opus audio and .mp4 video (extracts audio track)
+ * Supports .opus/.m4a audio and .mp4 video (extracts audio track)
  */
 async function convertToMp3(inputPath: string): Promise<string> {
 	const filename = getFilename(inputPath).replace(/\.[^.]+$/, ".mp3");
