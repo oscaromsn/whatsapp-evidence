@@ -75,8 +75,11 @@ function ExtractWhatsAppMessages(screenshot: image, screenshot_filename: string)
     A PRECISÃO ABSOLUTA é fundamental - não assuma, não interprete, apenas registre.
 
     NOME DO ARQUIVO: {{ screenshot_filename }}
-    Este nome segue o padrão IMG-YYYYMMDD-WA####.jpg, onde YYYYMMDD é a data da captura.
-    Use esta data para calcular datas relativas.
+    Este nome pode seguir diferentes padrões:
+    - IMG-YYYYMMDD-WA####.jpg (ex: IMG-20241219-WA0042.jpg)
+    - PHOTO-YYYY-MM-DD-HH-MM-SS.jpg (ex: PHOTO-2025-12-19-01-45-08.jpg)
+    - WhatsApp Image YYYY-MM-DD at HH.MM.SS.jpeg (ex: WhatsApp Image 2026-01-07 at 14.38.38.jpeg)
+    Use a data do nome do arquivo para calcular datas relativas.
 
     ═══════════════════════════════════════════════════════════════════════════
     INSTRUÇÕES DETALHADAS
