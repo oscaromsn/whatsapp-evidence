@@ -39,14 +39,13 @@ export const version = "0.214.0";
 
 ThrowIfVersionMismatch(version);
 
-export {
-	BamlClientFinishReasonError,
-	BamlClientHttpError,
-	BamlValidationError,
-} from "@boundaryml/baml";
-export { b } from "./async_client";
-export { resetBamlEnvVars } from "./globals";
-export type { partial_types } from "./partial_types";
-export * from "./tracing";
-export * from "./types";
-export * as watchers from "./watchers";
+
+
+export { b } from "./async_client"
+
+export * from "./types"
+export type { partial_types } from "./partial_types"
+export * from "./tracing"
+export * as watchers from "./watchers"
+export { resetBamlEnvVars } from "./globals"
+export { BamlClientHttpError, BamlValidationError, BamlClientFinishReasonError } from "@boundaryml/baml"
