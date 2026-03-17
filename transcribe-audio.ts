@@ -1,6 +1,6 @@
 // =============================================================================
 // Audio Transcription Module - ElevenLabs Speech-to-Text
-// Converts WhatsApp .opus/.ogg/.m4a/.mp3 audio and .mp4/.mov video files to markdown transcriptions
+// Converts WhatsApp .opus/.m4a/.ogg audio and .mp4 video files to markdown transcriptions
 // =============================================================================
 
 import {
@@ -22,7 +22,7 @@ const AUDIO_CONFIG = {
 	API_URL: "https://api.elevenlabs.io/v1/speech-to-text",
 	MODEL_ID: "scribe_v1",
 	LANGUAGE_CODE: "pt",
-	EXTENSIONS: ["opus", "ogg", "mp4", "m4a", "mov", "mp3"],
+	EXTENSIONS: ["opus", "mp4", "m4a", "ogg"],
 } as const;
 
 // ===== Type Definitions =====
@@ -68,84 +68,23 @@ let currentOptions: TranscribeOptions = {};
 // ===== Audio Processing Functions =====
 
 /**
- * Format bytes into a human-readable string
- */
-function formatFileSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	if (bytes < 1024 * 1024 * 1024)
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-/**
  * Convert audio/video file to MP3 using ffmpeg
- * Supports .opus/.m4a audio and .mp4/.mov video (extracts audio track)
+ * Supports .opus/.m4a audio and .mp4 video (extracts audio track)
  */
 async function convertToMp3(inputPath: string): Promise<string> {
 	const filename = getFilename(inputPath).replace(/\.[^.]+$/, ".mp3");
 	const tempDir = CONFIG.TEMP_DIR;
 	const mp3Path = `${tempDir}/${filename}`;
 
-	const fileSize = Bun.file(inputPath).size;
-	console.log(`     Tamanho: ${formatFileSize(fileSize)}`);
-
 	// Ensure temp directory exists
 	await Bun.$`mkdir -p ${tempDir}`.quiet();
 
-	// Convert with ffmpeg — show progress output for large files
-	const proc = Bun.spawn(
-		[
-			"ffmpeg",
-			"-y",
-			"-i",
-			inputPath,
-			"-codec:a",
-			"libmp3lame",
-			"-qscale:a",
-			"2",
-			"-progress",
-			"pipe:1",
-			mp3Path,
-		],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
+	// Convert with ffmpeg (auto-detects input format)
+	const result =
+		await Bun.$`ffmpeg -y -i ${inputPath} -codec:a libmp3lame -qscale:a 2 ${mp3Path}`.quiet();
 
-	// Parse ffmpeg progress from stdout
-	const reader = proc.stdout.getReader();
-	const decoder = new TextDecoder();
-	let lastLog = 0;
-	let buffer = "";
-
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		buffer += decoder.decode(value, { stream: true });
-
-		const lines = buffer.split("\n");
-		buffer = lines.pop() ?? "";
-
-		for (const line of lines) {
-			const match = line.match(/^out_time_ms=(\d+)/);
-			if (match) {
-				const seconds = Number(match[1]) / 1_000_000;
-				const now = Date.now();
-				if (now - lastLog >= 3000) {
-					const mins = Math.floor(seconds / 60);
-					const secs = Math.floor(seconds % 60);
-					console.log(
-						`     Progresso: ${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")} convertidos...`,
-					);
-					lastLog = now;
-				}
-			}
-		}
-	}
-
-	const exitCode = await proc.exited;
-	if (exitCode !== 0) {
-		const stderr = await new Response(proc.stderr).text();
-		throw new Error(`ffmpeg failed: ${stderr}`);
+	if (result.exitCode !== 0) {
+		throw new Error(`ffmpeg failed: ${result.stderr.toString()}`);
 	}
 
 	return mp3Path;
@@ -296,24 +235,16 @@ async function processAudioFile(audioPath: string): Promise<void> {
 	const filename = getFilename(audioPath);
 	console.log(`\n[Processando] ${filename}`);
 
-	const isAlreadyMp3 = /\.mp3$/i.test(audioPath);
 	let mp3Path: string | null = null;
 
 	try {
-		// Step 1: Convert to MP3 (skip if already .mp3)
-		let apiInputPath: string;
-		if (isAlreadyMp3) {
-			console.log("  -> Arquivo já é MP3, pulando conversão...");
-			apiInputPath = audioPath;
-		} else {
-			console.log("  -> Convertendo para MP3...");
-			mp3Path = await convertToMp3(audioPath);
-			apiInputPath = mp3Path;
-		}
+		// Step 1: Convert to MP3 (works for .opus and .mp4)
+		console.log("  -> Convertendo para MP3...");
+		mp3Path = await convertToMp3(audioPath);
 
 		// Step 2: Transcribe with ElevenLabs
 		console.log("  -> Enviando para transcrição...");
-		const transcription = await callElevenLabsAPI(apiInputPath);
+		const transcription = await callElevenLabsAPI(mp3Path);
 
 		// Step 3: Format and save markdown
 		console.log("  -> Salvando transcrição...");
@@ -331,7 +262,7 @@ async function processAudioFile(audioPath: string): Promise<void> {
 
 		console.log(`  -> Concluído: ${getFilename(mdPath)}`);
 	} finally {
-		// Cleanup: Always remove temp MP3 (skip if input was already .mp3)
+		// Cleanup: Always remove temp MP3
 		if (mp3Path) {
 			try {
 				await Bun.$`rm -f ${mp3Path}`.quiet();
