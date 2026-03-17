@@ -41,12 +41,26 @@ export async function findFiles(
 	baseDir: string,
 	extension: string,
 ): Promise<string[]> {
-	const pattern = `**/*.${extension}`;
-	const glob = new Bun.Glob(pattern);
+	// Match both lowercase and uppercase extensions (e.g., .mov and .MOV)
+	const lowerPattern = `**/*.${extension.toLowerCase()}`;
+	const upperPattern = `**/*.${extension.toUpperCase()}`;
+	const lowerGlob = new Bun.Glob(lowerPattern);
+	const upperGlob = new Bun.Glob(upperPattern);
 	const files: string[] = [];
+	const seen = new Set<string>();
 
-	for await (const file of glob.scan({ cwd: baseDir, absolute: true })) {
-		files.push(file);
+	for await (const file of lowerGlob.scan({ cwd: baseDir, absolute: true })) {
+		if (!seen.has(file)) {
+			seen.add(file);
+			files.push(file);
+		}
+	}
+
+	for await (const file of upperGlob.scan({ cwd: baseDir, absolute: true })) {
+		if (!seen.has(file)) {
+			seen.add(file);
+			files.push(file);
+		}
 	}
 
 	return files.sort();
