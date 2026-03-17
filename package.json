@@ -20,6 +20,6 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@boundaryml/baml": "^0.214.0"
+		"@boundaryml/baml": "^0.220.0"
 	}
 }
