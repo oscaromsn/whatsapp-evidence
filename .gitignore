@@ -35,6 +35,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # inputs
 to-transcript
-
+transcript/
+transcript-done/
 transcripts/
 baml_client/
+transcript-inbox
