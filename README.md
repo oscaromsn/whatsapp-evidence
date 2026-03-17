@@ -22,7 +22,7 @@ This tool automates the conversion of WhatsApp media into professionally formatt
 - Outputs structured markdown with full metadata
 
 **Screenshot Extraction**
-- Extracts message content from `.jpg` screenshots using vision AI
+- Extracts message content from `.jpg` and `.jpeg` screenshots using vision AI
 - Preserves sender names, timestamps, message status, and media types
 - Handles replies, forwarded messages, edited messages, and deleted message placeholders
 - Infers dates from relative indicators ("HOJE", "ONTEM") using screenshot filename
@@ -131,7 +131,7 @@ total_mensagens: 5
 WhatsApp exports files with predictable naming:
 - Audio: `PTT-YYYYMMDD-WA####.opus` or `AUD-YYYYMMDD-WA####.opus`
 - Video: `VID-YYYYMMDD-WA####.mp4`
-- Images: `IMG-YYYYMMDD-WA####.jpg`
+- Images: `IMG-YYYYMMDD-WA####.jpg`, `PHOTO-YYYY-MM-DD-HH-MM-SS.jpg`, or `WhatsApp Image YYYY-MM-DD at HH.MM.SS.jpeg`
 
 The date in the filename is used to resolve relative date references ("HOJE", "ONTEM") in screenshots.
 
