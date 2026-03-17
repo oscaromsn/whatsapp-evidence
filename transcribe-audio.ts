@@ -1,6 +1,6 @@
 // =============================================================================
 // Audio Transcription Module - ElevenLabs Speech-to-Text
-// Converts WhatsApp .opus/.m4a/.ogg audio and .mp4 video files to markdown transcriptions
+// Converts WhatsApp .opus/.m4a/.ogg/.oga audio and .mp4 video files to markdown transcriptions
 // =============================================================================
 
 import {
@@ -22,7 +22,7 @@ const AUDIO_CONFIG = {
 	API_URL: "https://api.elevenlabs.io/v1/speech-to-text",
 	MODEL_ID: "scribe_v1",
 	LANGUAGE_CODE: "pt",
-	EXTENSIONS: ["opus", "mp4", "m4a", "ogg"],
+	EXTENSIONS: ["opus", "mp4", "m4a", "ogg", "oga"],
 } as const;
 
 // ===== Type Definitions =====
