@@ -1,6 +1,6 @@
 // =============================================================================
 // Image Transcription Module - BAML Vision
-// Converts WhatsApp screenshot images (.jpg) to structured markdown
+// Converts WhatsApp screenshot images (.jpg, .jpeg) to structured markdown
 // For legal documentation - accuracy is paramount
 // =============================================================================
 
@@ -28,7 +28,7 @@ import {
 // ===== Image-Specific Configuration =====
 
 const IMAGE_CONFIG = {
-	EXTENSION: "jpg",
+	EXTENSIONS: ["jpg", "jpeg"],
 } as const;
 
 // ===== Type Definitions =====
@@ -311,11 +311,17 @@ export async function transcribeImages(
 	// Set module-level options for use in formatting
 	currentOptions = options;
 
-	console.log("Buscando capturas de tela (.jpg)...");
+	const extList = IMAGE_CONFIG.EXTENSIONS.map((e) => `.${e}`).join(", ");
+	console.log(`Buscando capturas de tela (${extList})...`);
 
-	// Find all jpg files
-	const allFiles = await findFiles(sourceDir, IMAGE_CONFIG.EXTENSION);
-	console.log(`  Encontrados: ${allFiles.length} arquivos .jpg`);
+	// Find all image files
+	const allFiles: string[] = [];
+	for (const ext of IMAGE_CONFIG.EXTENSIONS) {
+		const files = await findFiles(sourceDir, ext);
+		allFiles.push(...files);
+	}
+	allFiles.sort();
+	console.log(`  Encontrados: ${allFiles.length} arquivos`);
 
 	if (allFiles.length === 0) {
 		return { total: 0, pending: 0, processed: 0, errors: 0, skipped: 0 };
