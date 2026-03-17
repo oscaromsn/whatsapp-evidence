@@ -17,7 +17,7 @@ Uso:
   bun index.ts [opcoes] [diretorio]
 
 Opções:
-  -a, --audio        Transcrever apenas arquivos de áudio (.opus, .m4a)
+  -a, --audio        Transcrever apenas arquivos de áudio (.opus, .ogg, .m4a, .mp3, .mov)
   -i, --images       Transcrever apenas capturas de tela (.jpg)
   -d, --disclaimer   Incluir aviso legal no final dos arquivos
   -h, --help         Exibir esta mensagem de ajuda
