@@ -7,7 +7,6 @@
 
 export const CONFIG = {
 	SOURCE_DIR: "./to-transcript",
-	TEMP_DIR: "/tmp/audio-transcript",
 } as const;
 
 export const LEGAL_DISCLAIMER = `> **Aviso Legal:** Esta transcrição foi produzida por inteligência artificial e revisada por um humano. Não substitui seu original, tendo como objetivo contribuir para a eficiência do judiciário e a democratização da Justiça, em conformidade com a Recomendação 0001/2024 do Conselho Federal da OAB e a Resolução 615/2025 do Conselho Nacional de Justiça.`;
