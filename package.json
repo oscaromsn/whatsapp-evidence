@@ -20,6 +20,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@boundaryml/baml": "^0.220.0"
+		"@boundaryml/baml": "^0.220.0",
+		"@elevenlabs/elevenlabs-js": "^2.39.0"
 	}
 }
