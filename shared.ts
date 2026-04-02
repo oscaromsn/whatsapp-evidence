@@ -36,6 +36,26 @@ export interface ProcessorResult {
 /**
  * Find all files with given extension recursively in the source directory
  */
+/**
+ * Validate that the source directory exists and is a directory
+ */
+export async function validateSourceDir(dir: string): Promise<void> {
+	const { stat } = await import("node:fs/promises");
+	try {
+		const info = await stat(dir);
+		if (!info.isDirectory()) {
+			console.error(`Erro: "${dir}" não é um diretório.`);
+			process.exit(1);
+		}
+	} catch {
+		console.error(`Erro: Diretório "${dir}" não encontrado.`);
+		process.exit(1);
+	}
+}
+
+/**
+ * Find all files with given extension recursively in the source directory
+ */
 export async function findFiles(
 	baseDir: string,
 	extension: string,
@@ -105,6 +125,12 @@ export async function getFileMetadata(filePath: string): Promise<FileMetadata> {
 
 // ===== Processing Orchestrator =====
 
+function renderProgressBar(current: number, total: number, width = 20): string {
+	const filled = Math.round((current / total) * width);
+	const empty = width - filled;
+	return `[${"█".repeat(filled)}${"░".repeat(empty)}] ${current}/${total}`;
+}
+
 export type FileProcessor = (filePath: string) => Promise<void>;
 
 /**
@@ -121,6 +147,8 @@ export async function processFiles(
 	let errors = 0;
 
 	for (const [i, file] of files.entries()) {
+		console.log(`\n${renderProgressBar(i, files.length)}`);
+
 		try {
 			await processor(file);
 			processed++;
@@ -136,6 +164,8 @@ export async function processFiles(
 			await Bun.sleep(delayMs);
 		}
 	}
+
+	console.log(`\n${renderProgressBar(files.length, files.length)}`);
 
 	return {
 		total: files.length,
