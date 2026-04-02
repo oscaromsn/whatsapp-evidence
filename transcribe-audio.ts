@@ -4,7 +4,7 @@
 // to ElevenLabs Scribe v2 for transcription to markdown
 // =============================================================================
 
-import { type ElevenLabs, ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import type { ElevenLabs } from "@elevenlabs/elevenlabs-js";
 import {
 	CONFIG,
 	type FileMetadata,
@@ -24,6 +24,8 @@ const AUDIO_CONFIG = {
 	MODEL_ID: "scribe_v2",
 	LANGUAGE_CODE: "pt",
 	EXTENSIONS: ["opus", "mp4", "m4a", "ogg", "oga"],
+	TIMEOUT_SECONDS: 300,
+	MAX_RETRIES: 3,
 } as const;
 
 function getMimeType(filePath: string): string {
@@ -66,7 +68,7 @@ let currentOptions: TranscribeOptions = {};
 /**
  * Call ElevenLabs speech-to-text API using the official SDK
  */
-async function callElevenLabsAPI(
+export async function callElevenLabsAPI(
 	audioPath: string,
 ): Promise<ElevenLabs.SpeechToTextChunkResponseModel> {
 	const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -74,19 +76,27 @@ async function callElevenLabsAPI(
 		throw new Error("ELEVENLABS_API_KEY not found in environment");
 	}
 
+	const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
+
 	const file = Bun.file(audioPath);
 	const fileBlob = await file.arrayBuffer();
 
 	const client = new ElevenLabsClient({ apiKey });
 
-	return client.speechToText.convert({
-		file: new Blob([fileBlob], { type: getMimeType(audioPath) }),
-		modelId: AUDIO_CONFIG.MODEL_ID,
-		languageCode: AUDIO_CONFIG.LANGUAGE_CODE,
-		diarize: true,
-		timestampsGranularity: "word",
-		tagAudioEvents: true,
-	});
+	return client.speechToText.convert(
+		{
+			file: new Blob([fileBlob], { type: getMimeType(audioPath) }),
+			modelId: AUDIO_CONFIG.MODEL_ID,
+			languageCode: AUDIO_CONFIG.LANGUAGE_CODE,
+			diarize: true,
+			timestampsGranularity: "word",
+			tagAudioEvents: true,
+		},
+		{
+			timeoutInSeconds: AUDIO_CONFIG.TIMEOUT_SECONDS,
+			maxRetries: AUDIO_CONFIG.MAX_RETRIES,
+		},
+	);
 }
 
 /**
@@ -191,7 +201,32 @@ async function processAudioFile(audioPath: string): Promise<void> {
 	console.log(`\n[Processando] ${filename}`);
 	console.log("  -> Enviando para transcrição...");
 
-	const transcription = await callElevenLabsAPI(audioPath);
+	let transcription: ElevenLabs.SpeechToTextChunkResponseModel;
+	const startTime = Date.now();
+	try {
+		transcription = await callElevenLabsAPI(audioPath);
+	} catch (error) {
+		const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+		const fileSizeMB = (Bun.file(audioPath).size / 1024 / 1024).toFixed(1);
+		const { ElevenLabsTimeoutError, ElevenLabsError } = await import(
+			"@elevenlabs/elevenlabs-js"
+		);
+
+		if (error instanceof ElevenLabsTimeoutError) {
+			throw new Error(
+				`Timeout após ${elapsed}s (limite: ${AUDIO_CONFIG.TIMEOUT_SECONDS}s, arquivo: ${fileSizeMB}MB). Tente dividir o arquivo em partes menores.`,
+			);
+		}
+		if (error instanceof ElevenLabsError && error.statusCode === 429) {
+			throw new Error(
+				`Rate limit atingido após ${elapsed}s. Tente novamente em alguns minutos.`,
+			);
+		}
+		const msg = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`Falha após ${elapsed}s (arquivo: ${fileSizeMB}MB): ${msg}`,
+		);
+	}
 
 	console.log("  -> Salvando transcrição...");
 	const fileMetadata = await getFileMetadata(audioPath);

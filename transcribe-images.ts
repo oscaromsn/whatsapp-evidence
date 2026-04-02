@@ -4,13 +4,11 @@
 // For legal documentation - accuracy is paramount
 // =============================================================================
 
-import { Image } from "@boundaryml/baml";
-import {
-	b,
-	type MediaType,
-	type MessageStatus,
-	type WhatsAppMessage,
-	type WhatsAppScreenshot,
+import type {
+	MediaType,
+	MessageStatus,
+	WhatsAppMessage,
+	WhatsAppScreenshot,
 } from "./baml_client";
 import {
 	CONFIG,
@@ -52,7 +50,12 @@ let currentOptions: TranscribeOptions = {};
 /**
  * Transcribe image using BAML vision function
  */
-async function callBAMLVision(jpgPath: string): Promise<WhatsAppScreenshot> {
+export async function callBAMLVision(
+	jpgPath: string,
+): Promise<WhatsAppScreenshot> {
+	const { Image } = await import("@boundaryml/baml");
+	const { b } = await import("./baml_client");
+
 	// Read image file and convert to base64
 	const file = Bun.file(jpgPath);
 	const arrayBuffer = await file.arrayBuffer();
