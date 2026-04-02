@@ -4,9 +4,13 @@
 // Converts WhatsApp audio (.opus) and screenshot (.jpg) files to legal markdown
 // =============================================================================
 
-import { CONFIG, logHeader, logStats, type ProcessingStats } from "./shared";
-import { transcribeAudio } from "./transcribe-audio";
-import { transcribeImages } from "./transcribe-images";
+import {
+	CONFIG,
+	logHeader,
+	logStats,
+	type ProcessingStats,
+	validateSourceDir,
+} from "./shared";
 
 // ===== CLI Configuration =====
 
@@ -111,6 +115,24 @@ function combineStats(
 
 async function main(): Promise<void> {
 	const args = process.argv.slice(2);
+
+	// Subcommand routing
+	if (args[0] === "ingest") {
+		const { parseIngestArgs, INGEST_HELP_TEXT } = await import("./ingest/cli");
+		const subArgs = args.slice(1);
+
+		if (subArgs.includes("-h") || subArgs.includes("--help")) {
+			console.log(INGEST_HELP_TEXT);
+			return;
+		}
+
+		const ingestOptions = parseIngestArgs(subArgs);
+		const { runIngest } = await import("./ingest/orchestrator");
+		await runIngest(ingestOptions);
+		return;
+	}
+
+	// Default: transcribe subcommand (backward-compatible)
 	const options = parseArgs(args);
 
 	if (options.showHelp) {
@@ -125,12 +147,16 @@ async function main(): Promise<void> {
 	);
 	console.log(`Aviso legal: ${options.disclaimer ? "Sim" : "Não"}`);
 
+	await validateSourceDir(options.sourceDir);
+
 	let audioStats: ProcessingStats | null = null;
 	let imageStats: ProcessingStats | null = null;
 
 	// Process audio files
 	if (options.audio) {
 		logHeader("Transcrição de Áudio");
+		console.log("Carregando módulo de áudio...");
+		const { transcribeAudio } = await import("./transcribe-audio");
 		audioStats = await transcribeAudio(options.sourceDir, {
 			includeDisclaimer: options.disclaimer,
 		});
@@ -142,6 +168,8 @@ async function main(): Promise<void> {
 	// Process image files
 	if (options.images) {
 		logHeader("Transcrição de Imagens");
+		console.log("Carregando módulo de imagens...");
+		const { transcribeImages } = await import("./transcribe-images");
 		imageStats = await transcribeImages(options.sourceDir, {
 			includeDisclaimer: options.disclaimer,
 		});

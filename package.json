@@ -10,7 +10,9 @@
 		"transcribe": "bun index.ts",
 		"transcribe:audio": "bun index.ts --audio",
 		"transcribe:images": "bun index.ts --images",
-		"cleanup": "bun cleanup-md.ts"
+		"cleanup": "bun cleanup-md.ts",
+		"ingest": "bun index.ts ingest",
+		"ingest:dry-run": "bun index.ts ingest --dry-run"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.11",
