@@ -1,7 +1,7 @@
 // =============================================================================
 // Audio Transcription Module - ElevenLabs Speech-to-Text
-// Sends WhatsApp audio (.opus/.m4a/.ogg/.oga) and video (.mp4) files directly
-// to ElevenLabs Scribe v2 for transcription to markdown
+// Sends WhatsApp audio (.opus/.m4a/.ogg/.oga/.mp3) and video (.mp4) files
+// directly to ElevenLabs Scribe v2 for transcription to markdown
 // =============================================================================
 
 import type { ElevenLabs } from "@elevenlabs/elevenlabs-js";
@@ -23,7 +23,7 @@ import {
 const AUDIO_CONFIG = {
 	MODEL_ID: "scribe_v2",
 	LANGUAGE_CODE: "pt",
-	EXTENSIONS: ["opus", "mp4", "m4a", "ogg", "oga"],
+	EXTENSIONS: ["opus", "mp4", "m4a", "mp3", "ogg", "oga"],
 	TIMEOUT_SECONDS: 300,
 	MAX_RETRIES: 3,
 } as const;
@@ -32,6 +32,7 @@ function getMimeType(filePath: string): string {
 	const ext = filePath.split(".").pop()?.toLowerCase();
 	const mimeTypes: Record<string, string> = {
 		m4a: "audio/x-m4a",
+		mp3: "audio/mpeg",
 		mp4: "video/mp4",
 		opus: "audio/opus",
 		ogg: "audio/ogg",
