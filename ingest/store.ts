@@ -103,7 +103,12 @@ export function mergeMessages(
 	let upgraded = 0;
 
 	for (const msg of messages) {
-		const id = computeMessageId(msg.timestamp, msg.sender, msg.content);
+		const id = computeMessageId(
+			msg.timestamp,
+			msg.sender,
+			msg.content,
+			msg.mediaFile,
+		);
 
 		// Exact hash match — skip
 		if (index.messages[id]) {
@@ -208,7 +213,12 @@ export function detectOverlappingContact(
 	let totalOverlap = 0;
 
 	for (const msg of messages) {
-		const id = computeMessageId(msg.timestamp, msg.sender, msg.content);
+		const id = computeMessageId(
+			msg.timestamp,
+			msg.sender,
+			msg.content,
+			msg.mediaFile,
+		);
 		const existing = index.messages[id];
 		if (existing && existing.contact !== zipContactName) {
 			totalOverlap++;

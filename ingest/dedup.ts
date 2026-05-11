@@ -10,9 +10,10 @@ export function computeMessageId(
 	timestamp: string,
 	sender: string,
 	content: string,
+	mediaFile: string | null = null,
 ): string {
 	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(`${timestamp}\0${sender}\0${content}`);
+	hasher.update(`${timestamp}\0${sender}\0${content}\0${mediaFile ?? ""}`);
 	return hasher.digest("hex");
 }
 
@@ -37,7 +38,12 @@ export function deduplicateMessages(
 	const result: ParsedMessage[] = [];
 
 	for (const msg of messages) {
-		const id = computeMessageId(msg.timestamp, msg.sender, msg.content);
+		const id = computeMessageId(
+			msg.timestamp,
+			msg.sender,
+			msg.content,
+			msg.mediaFile,
+		);
 
 		// Exact duplicate — skip
 		if (seenById.has(id)) continue;
@@ -74,6 +80,7 @@ export function deduplicateMessages(
 					omittedMsg.timestamp,
 					omittedMsg.sender,
 					omittedMsg.content,
+					omittedMsg.mediaFile,
 				);
 				seenById.delete(omittedId);
 				result[omittedIdx] = msg;
