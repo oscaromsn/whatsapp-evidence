@@ -57,7 +57,7 @@ export function mergeMessages(
 	zipName: string,
 	splitInterval: SplitInterval,
 	timezone: string,
-): { added: number; skipped: number } {
+): { added: number; skipped: number; upgraded: number } {
 	// Ensure contact entry exists
 	if (!index.contacts[contactName]) {
 		index.contacts[contactName] = {
@@ -86,7 +86,10 @@ export function mergeMessages(
 	}
 
 	// Build a lookup of existing messages by timestamp+sender for media matching
-	const existingByMediaKey = new Map<string, { id: string; entry: MessageEntry }>();
+	const existingByMediaKey = new Map<
+		string,
+		{ id: string; entry: MessageEntry }
+	>();
 	for (const [id, entry] of Object.entries(index.messages)) {
 		if (entry.contact === contactName) {
 			const key = computeMediaMatchKey(entry.timestamp, entry.sender);
