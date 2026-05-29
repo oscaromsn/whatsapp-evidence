@@ -71,6 +71,36 @@ const UNAMBIGUOUS_MMDD = `3/25/26, 14:30 - John: Good morning
 const AMBIGUOUS_DATES = `1/2/26, 14:30 - Oscar: Test
 3/4/26, 10:00 - Bruno: Test`;
 
+// ===== iOS real-world quirks: CRLF endings + leading bidi marks ===== //
+// Real iOS exports use "\r\n" line endings and prepend U+200E (LEFT-TO-RIGHT
+// MARK) to many lines (notably media/attachment and system lines). Both must be
+// tolerated or the message-start regexes fail and ~all lines collapse into
+// continuations of the first parsed message.
+
+const IOS_CRLF = [
+	"[10/02/26, 09:38:02] Beatriz Nogueira: Oi",
+	"[10/02/26, 11:38:38] Oscar Neto: Bom dia",
+	"[10/02/26, 11:39:16] Beatriz Nogueira: Tudo certo?",
+].join("\r\n");
+
+const IOS_LEADING_MARK = [
+	"\u200e[10/02/26, 09:38:02] Beatriz Nogueira: \u200eMessages and calls are end-to-end encrypted.",
+	"[10/02/26, 11:38:38] Oscar Neto: Bom dia",
+	"\u200e[15/04/26, 16:04:50] Beatriz Nogueira: \u200e<attached: 0000123-doc.pdf>",
+].join("\r\n");
+
+// First lines are all day<=12 (ambiguous) with an ENGLISH encryption banner, so
+// a language-only fallback would wrongly pick MM/DD. A later line (27/05) is the
+// only one that disambiguates → detection must scan past the early lines.
+const AMBIGUOUS_THEN_DDMM = [
+	"[10/02/26, 09:38:02] A: Messages and calls are end-to-end encrypted.",
+	...Array.from(
+		{ length: 25 },
+		(_, i) => `[0${(i % 9) + 1}/02/26, 10:0${i % 10}:00] A: msg ${i}`,
+	),
+	"[27/05/26, 15:00:00] A: later message",
+].join("\r\n");
+
 // ===== Tests =====
 
 describe("detectZipLanguage", () => {
@@ -104,6 +134,51 @@ describe("detectDateFormat", () => {
 		const lines = AMBIGUOUS_DATES.split("\n");
 		expect(detectDateFormat(lines, "en")).toBe("MM/DD");
 		expect(detectDateFormat(lines, "pt-br")).toBe("DD/MM");
+	});
+
+	test("scans past early ambiguous lines to find a disambiguating date", () => {
+		// All but the last line are day<=12; only line 27 (27/05) disambiguates.
+		// Language hint is "en" (would wrongly yield MM/DD) — detection must not
+		// stop early and must not fall back to language here.
+		const lines = AMBIGUOUS_THEN_DDMM.split("\r\n");
+		expect(detectDateFormat(lines, "en")).toBe("DD/MM");
+	});
+
+	test("tolerates leading bidi marks when reading the date", () => {
+		const lines = IOS_LEADING_MARK.split("\r\n");
+		expect(detectDateFormat(lines, "en")).toBe("DD/MM");
+	});
+});
+
+describe("iOS real-world quirks (CRLF + leading bidi marks)", () => {
+	test("parses CRLF (\\r\\n) lines without dropping messages", () => {
+		const result = parseChatLog(IOS_CRLF);
+		expect(result.messages.length).toBe(3);
+		expect(result.warnings.length).toBe(0);
+	});
+
+	test("strips trailing \\r from message content", () => {
+		const result = parseChatLog(IOS_CRLF);
+		expect(result.messages[0]!.sender).toBe("Beatriz Nogueira");
+		expect(result.messages[0]!.content).toBe("Oi");
+		// no carriage return leaked into content
+		expect(result.messages.some((m) => m.content.includes("\r"))).toBe(false);
+	});
+
+	test("recognizes lines prefixed with U+200E as message starts", () => {
+		const result = parseChatLog(IOS_LEADING_MARK);
+		// Without stripping the mark, the 1st and 3rd lines would collapse into
+		// continuations and the count would be wrong (1 instead of 3).
+		expect(result.messages.length).toBe(3);
+		expect(result.messages[1]!.sender).toBe("Oscar Neto");
+		expect(result.messages[2]!.sender).toBe("Beatriz Nogueira");
+	});
+
+	test("resolves DD/MM dates correctly on a real-world iOS export", () => {
+		const result = parseChatLog(IOS_LEADING_MARK);
+		expect(result.detectedFormat).toBe("DD/MM");
+		// 15/04/26 must be 15 April, not 4 March / invalid month 15
+		expect(result.messages[2]!.timestamp).toBe("2026-04-15T16:04:50");
 	});
 });
 

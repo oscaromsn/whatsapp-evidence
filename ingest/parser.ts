@@ -25,6 +25,14 @@ const MESSAGE_START_RE =
 const BRACKETED_START_RE =
 	/^\[(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s(\d{1,2}:\d{2}(?::\d{2})?)\]\s(.*)$/;
 
+// Leading Unicode bidirectional/zero-width marks that WhatsApp (especially iOS)
+// prepends to many lines — notably media-attachment and edited/system lines.
+// They must be stripped before matching message-start patterns, otherwise a line
+// like "<U+200E>[15/04/26, 16:04:50] ..." fails the ^\[ anchor and is mis-merged
+// as a continuation of the previous message.
+const LEADING_MARKS_RE =
+	/^[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff\u200b]+/;
+
 const DELETED_PATTERNS = [
 	"Esta mensagem foi apagada",
 	"Você apagou esta mensagem",
@@ -92,29 +100,28 @@ export function detectDateFormat(
 	lines: string[],
 	zipLanguage: ZipLanguage,
 ): "DD/MM" | "MM/DD" | null {
-	let firstFieldMax = 0;
-	let secondFieldMax = 0;
-	let checked = 0;
+	// Scan all message-start lines and return as soon as a value disambiguates the
+	// order. We do NOT cap the sample (a previous 20-line cap misfired on chats that
+	// open with several days of day<=12 dates, e.g. "10/02"), and we tolerate the
+	// leading bidi/zero-width marks WhatsApp prepends to many lines.
+	const dateRe = new RegExp(
+		`${LEADING_MARKS_RE.source.replace(/\+$/, "*")}\\[?(\\d{1,2})\\/(\\d{1,2})\\/\\d{2,4}`,
+	);
 
 	for (const line of lines) {
-		if (checked >= 20) break;
-
-		const match = line.match(/^\[?(\d{1,2})\/(\d{1,2})\/\d{2,4}/);
+		const match = line.match(dateRe);
 		if (!match) continue;
 
 		const first = Number.parseInt(match[1]!, 10);
 		const second = Number.parseInt(match[2]!, 10);
-		firstFieldMax = Math.max(firstFieldMax, first);
-		secondFieldMax = Math.max(secondFieldMax, second);
-		checked++;
+
+		// If first field > 12, it must be the day → DD/MM
+		if (first > 12) return "DD/MM";
+		// If second field > 12, it must be the day → MM/DD
+		if (second > 12) return "MM/DD";
 	}
 
-	// If first field > 12, it must be the day → DD/MM
-	if (firstFieldMax > 12) return "DD/MM";
-	// If second field > 12, it must be the day → MM/DD
-	if (secondFieldMax > 12) return "MM/DD";
-
-	// Ambiguous: fall back to language hint
+	// Fully ambiguous (no field ever exceeds 12): fall back to language hint
 	return zipLanguage === "pt-br" ? "DD/MM" : "MM/DD";
 }
 
@@ -122,7 +129,10 @@ export function parseChatLog(
 	text: string,
 	options: { dateFormat?: "DD/MM" | "MM/DD" } = {},
 ): ParseResult {
-	const lines = text.split("\n");
+	// Split on CRLF, lone CR, or LF. WhatsApp exports are commonly CRLF; a
+	// leftover trailing "\r" breaks the message-start regexes (the `.` in `(.*)$`
+	// does not match "\r", and `$` does not anchor before a lone "\r").
+	const lines = text.split(/\r\n|\r|\n/);
 	const warnings: string[] = [];
 
 	// Detect date format if not provided
@@ -244,8 +254,12 @@ interface LineParseResult {
 }
 
 function parseMessageStartLine(line: string): LineParseResult | null {
+	// Strip leading bidi/zero-width marks so iOS lines such as
+	// "<U+200E>[15/04/26, ...]" are recognized as message starts, not continuations.
+	const stripped = line.replace(LEADING_MARKS_RE, "");
+
 	// Try bracketed format first: [DD/MM/YYYY, HH:MM:SS] Body
-	const bracketMatch = line.match(BRACKETED_START_RE);
+	const bracketMatch = stripped.match(BRACKETED_START_RE);
 	if (bracketMatch) {
 		return {
 			datePart: bracketMatch[1]!,
@@ -256,7 +270,7 @@ function parseMessageStartLine(line: string): LineParseResult | null {
 	}
 
 	// Try standard format: D/M/YY, HH:MM - Body
-	const match = line.match(MESSAGE_START_RE);
+	const match = stripped.match(MESSAGE_START_RE);
 	if (match) {
 		return {
 			datePart: match[1]!,
