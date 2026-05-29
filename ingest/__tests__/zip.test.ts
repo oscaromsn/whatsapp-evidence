@@ -1,14 +1,30 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractZip, findZipFiles } from "../zip";
+import { createFixturesDir } from "./fixtures";
 
-const FIXTURES_DIR = join(import.meta.dir, "../../zips");
-
+let FIXTURES_DIR: string;
 let tempDir: string;
 let cacheDir: string;
 let mediasDir: string;
+
+beforeAll(async () => {
+	FIXTURES_DIR = await createFixturesDir();
+});
+
+afterAll(async () => {
+	await rm(FIXTURES_DIR, { recursive: true, force: true });
+});
 
 beforeEach(async () => {
 	tempDir = await mkdtemp(join(tmpdir(), "wae-zip-test-"));

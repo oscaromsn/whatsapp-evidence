@@ -1,13 +1,21 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runIngest } from "../orchestrator";
 import { loadIndex } from "../store";
 import type { IngestOptions } from "../types";
+import { createFixturesDir } from "./fixtures";
 
-const FIXTURES_DIR = join(import.meta.dir, "../../zips");
-
+let FIXTURES_DIR: string;
 let outputDir: string;
 
 function defaultOptions(overrides: Partial<IngestOptions> = {}): IngestOptions {
@@ -32,6 +40,14 @@ function defaultOptions(overrides: Partial<IngestOptions> = {}): IngestOptions {
 		...overrides,
 	};
 }
+
+beforeAll(async () => {
+	FIXTURES_DIR = await createFixturesDir();
+});
+
+afterAll(async () => {
+	await rm(FIXTURES_DIR, { recursive: true, force: true });
+});
 
 beforeEach(async () => {
 	outputDir = await mkdtemp(join(tmpdir(), "wae-orchestrator-test-"));
