@@ -185,9 +185,7 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 		let contactName = extracted.contactName;
 		const overlapping = detectOverlappingContact(index, deduped, contactName);
 		if (overlapping) {
-			log.info(
-				`Mesma conversa detectada: "${contactName}" → "${overlapping}"`,
-			);
+			log.info(`Mesma conversa detectada: "${contactName}" → "${overlapping}"`);
 			contactName = overlapping;
 		}
 
@@ -214,7 +212,9 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 		totalAdded += added;
 		totalSkipped += skipped;
 
-		log.info(`Novas: ${added} | Já existentes: ${skipped}${upgraded > 0 ? ` | Mídias recuperadas: ${upgraded}` : ""}`);
+		log.info(
+			`Novas: ${added} | Já existentes: ${skipped}${upgraded > 0 ? ` | Mídias recuperadas: ${upgraded}` : ""}`,
+		);
 		allAffectedContacts.add(contactName);
 		contactSenders.set(contactName, senders);
 
@@ -267,7 +267,18 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 	if (options.media !== "none") {
 		log.header("Processando mídias");
 		const pendingMedia = Object.entries(index.mediaProcessing)
-			.filter(([, m]) => m.status === "pending" || m.status === "failed")
+			.filter(([key, m]) => {
+				if (m.status !== "pending" && m.status !== "failed") return false;
+				// When scoped to a contact, transcribe only that contact's media
+				// (keys are "<contactName>/<filename>").
+				if (
+					options.contact &&
+					key !== `${options.contact}/${m.originalFilename}`
+				) {
+					return false;
+				}
+				return true;
+			})
 			.map(([key, entry]) => ({
 				key,
 				entry,
