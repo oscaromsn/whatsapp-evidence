@@ -30,8 +30,15 @@ const BRACKETED_START_RE =
 // They must be stripped before matching message-start patterns, otherwise a line
 // like "<U+200E>[15/04/26, 16:04:50] ..." fails the ^\[ anchor and is mis-merged
 // as a continuation of the previous message.
-const LEADING_MARKS_RE =
+export const LEADING_MARKS_RE =
 	/^[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff\u200b]+/;
+
+// WhatsApp (iOS) injects U+200E/U+200F (LRM/RLM) directional marks throughout an
+// automated line -- around timestamps, page counts, and media markers. They are
+// invisible formatting, never semantic in chat text, so we strip them globally
+// from message content before pattern-matching. (Mention isolates U+2066-U+2069
+// are deliberately NOT stripped here -- they wrap @mentions in the body.)
+export const INLINE_BIDI_MARKS_RE = /[\u200e\u200f]/g;
 
 const DELETED_PATTERNS = [
 	"Esta mensagem foi apagada",
@@ -46,6 +53,32 @@ const MEDIA_OMITTED_PATTERNS = ["<Media omitted>", "<Mídia oculta>"];
 
 const FILE_ATTACHED_RE = /^(.+)\s\(file attached\)$/;
 const ARQUIVO_ANEXADO_RE = /^(.+)\s\(arquivo anexado\)$/;
+
+// iOS media attachment marker: "<attached: FILENAME>", optionally preceded by a
+// caption and/or a bullet-separated "N pages" doc preview. Anchored at end with
+// filename capture so a caption before it is preserved. Assumes inline bidi marks
+// were already stripped (see INLINE_BIDI_MARKS_RE). Capture group 1 is the
+// VERBATIM filename — it must match the extracted on-disk media file exactly.
+export const IOS_ATTACHED_RE = /\s*<attached:\s*(.+?)>\s*$/;
+
+// iOS document-preview tail to strip from a caption: a bullet + "N pages" /
+// "1 page" / PT "N páginas". Requires the U+2022 bullet and is anchored at end,
+// cannot match ordinary prose like "see page 5".
+export const IOS_DOC_PREVIEW_RE =
+	/\s*\u2022\s*[\d.,]+\s*(?:pages?|páginas?|página)\s*$/i;
+
+// iOS "X omitted" markers, used when a chat is exported WITHOUT media. Maps each
+// keyword to a MediaSubtype. Anchored at end (the marker is always the tail of the
+// line, e.g. "Doc.pdf (bullet) 3 pages document omitted").
+export const IOS_OMITTED_PATTERNS: Array<[RegExp, MediaSubtype]> = [
+	[/(?:^|\s)image omitted$/i, "image"],
+	[/(?:^|\s)video omitted$/i, "video"],
+	[/(?:^|\s)audio omitted$/i, "audio"],
+	[/(?:^|\s)sticker omitted$/i, "sticker"],
+	[/(?:^|\s)GIF omitted$/i, "video"],
+	[/(?:^|\s)Contact card omitted$/i, "contact"],
+	[/(?:^|\s)document omitted$/i, "document"],
+];
 
 const ENCRYPTION_PATTERNS = [
 	"end-to-end encrypted",
