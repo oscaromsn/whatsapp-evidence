@@ -44,3 +44,6 @@ transcripts-inbox/
 zips
 evidence
 to-ingest
+
+# repo dumps (repomix)
+repomix-output.xml
