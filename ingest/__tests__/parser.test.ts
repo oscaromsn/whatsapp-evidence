@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { detectDateFormat, detectZipLanguage, parseChatLog } from "../parser";
 
-// ===== Inline fixtures (synthetic; no real chat content) =====
+// ===== Inline fixtures =====
+// Synthetic conversations that reproduce the quirks of real WhatsApp exports
+// (bidi marks, continuation lines, same-minute bursts, media markers) without
+// carrying anyone's actual chat content.
 
 const EN_ANDROID_INDIVIDUAL = `1/4/26, 00:09 - Messages and calls are end-to-end encrypted. Only people in this chat can read, listen to, or share them. Learn more.
 1/16/26, 10:09 - Bruno Teixeira: Bom dia, tudo bem?
