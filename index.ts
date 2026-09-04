@@ -21,19 +21,23 @@ Uso:
   bun index.ts [opcoes] [diretorio]
 
 Opções:
-  -a, --audio        Transcrever apenas arquivos de áudio (.opus, .m4a, .mp3, .ogg, .oga)
-  -i, --images       Transcrever apenas capturas de tela (.jpg)
-  -d, --disclaimer   Incluir aviso legal no final dos arquivos
-  -h, --help         Exibir esta mensagem de ajuda
+  -a, --audio                    Transcrever apenas arquivos de áudio (.opus, .m4a, .mp3, .ogg, .oga)
+  -i, --images                   Transcrever apenas capturas de tela (.jpg)
+  -d, --disclaimer               Incluir aviso legal no final dos arquivos
+  -c, --chunk-minutes <n>        Duração máxima por parte ao dividir áudios longos
+                                 (padrão: 50, máx: 60). Requer ffmpeg/ffprobe.
+  -j, --chunk-concurrency <n>    Partes transcritas em paralelo por arquivo
+                                 (padrão: 3, máx: 5). Reduza se atingir rate limit.
+  -h, --help                     Exibir esta mensagem de ajuda
 
 Argumentos:
-  diretório          Diretório a processar (padrão: ${CONFIG.SOURCE_DIR})
+  diretório                      Diretório a processar (padrão: ${CONFIG.SOURCE_DIR})
 
 Exemplos:
-  bun index.ts                    # Processa áudio e imagens
-  bun index.ts --disclaimer       # Processa com aviso legal
-  bun index.ts -a -d              # Apenas áudios com aviso legal
-  bun index.ts ./meus-arquivos    # Processa em diretório específico
+  bun index.ts                       # Processa áudio e imagens
+  bun index.ts --disclaimer          # Processa com aviso legal
+  bun index.ts -a -d                 # Apenas áudios com aviso legal
+  bun index.ts -c 30 ./meus-arquivos # Divide áudios longos em partes de 30 min
 `;
 
 interface CLIOptions {
@@ -42,9 +46,39 @@ interface CLIOptions {
 	disclaimer: boolean;
 	sourceDir: string;
 	showHelp: boolean;
+	chunkMinutes: number | undefined;
+	chunkConcurrency: number | undefined;
 }
 
 // ===== CLI Argument Parser =====
+
+const MAX_CHUNK_MINUTES = 60;
+const MAX_CHUNK_CONCURRENCY = 5;
+
+function parseIntArg(
+	flag: string,
+	value: string | undefined,
+	min: number,
+	max: number,
+): number {
+	if (value == null) {
+		console.error(`Erro: ${flag} requer um valor.`);
+		process.exit(1);
+	}
+	const parsed = Number.parseInt(value, 10);
+	if (
+		!Number.isFinite(parsed) ||
+		parsed < min ||
+		parsed > max ||
+		String(parsed) !== value.trim()
+	) {
+		console.error(
+			`Erro: ${flag} deve ser um inteiro entre ${min} e ${max} (recebido: "${value}").`,
+		);
+		process.exit(1);
+	}
+	return parsed;
+}
 
 function parseArgs(args: string[]): CLIOptions {
 	const options: CLIOptions = {
@@ -53,9 +87,12 @@ function parseArgs(args: string[]): CLIOptions {
 		disclaimer: false,
 		sourceDir: CONFIG.SOURCE_DIR,
 		showHelp: false,
+		chunkMinutes: undefined,
+		chunkConcurrency: undefined,
 	};
 
-	for (const arg of args) {
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
 		if (arg === "-h" || arg === "--help") {
 			options.showHelp = true;
 		} else if (arg === "-a" || arg === "--audio") {
@@ -64,7 +101,23 @@ function parseArgs(args: string[]): CLIOptions {
 			options.images = true;
 		} else if (arg === "-d" || arg === "--disclaimer") {
 			options.disclaimer = true;
-		} else if (!arg.startsWith("-")) {
+		} else if (arg === "-c" || arg === "--chunk-minutes") {
+			options.chunkMinutes = parseIntArg(
+				arg,
+				args[i + 1],
+				1,
+				MAX_CHUNK_MINUTES,
+			);
+			i++;
+		} else if (arg === "-j" || arg === "--chunk-concurrency") {
+			options.chunkConcurrency = parseIntArg(
+				arg,
+				args[i + 1],
+				1,
+				MAX_CHUNK_CONCURRENCY,
+			);
+			i++;
+		} else if (arg != null && !arg.startsWith("-")) {
 			options.sourceDir = arg;
 		}
 	}
@@ -159,6 +212,8 @@ async function main(): Promise<void> {
 		const { transcribeAudio } = await import("./transcribe-audio");
 		audioStats = await transcribeAudio(options.sourceDir, {
 			includeDisclaimer: options.disclaimer,
+			chunkMinutes: options.chunkMinutes,
+			chunkConcurrency: options.chunkConcurrency,
 		});
 		if (audioStats.total > 0) {
 			logStats("Áudio", audioStats);
