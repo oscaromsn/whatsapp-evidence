@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { detectDateFormat, detectZipLanguage, parseChatLog } from "../parser";
+import {
+	detectDateFormat,
+	detectZipLanguage,
+	extractIosAttachment,
+	matchIosOmitted,
+	parseChatLog,
+} from "../parser";
 
 // ===== Inline fixtures =====
 // Synthetic conversations that reproduce the quirks of real WhatsApp exports
@@ -92,6 +98,28 @@ const IOS_LEADING_MARK = [
 	"\u200e[15/04/26, 16:04:50] Beatriz Nogueira: \u200e<attached: 0000123-doc.pdf>",
 ].join("\r\n");
 
+const LRM = "\u200e";
+// "Automatização" as macOS writes it inside iOS zips: decomposed (NFD) accents
+const NFD_NAME = "Automatizac\u0327a\u0303o.pdf";
+
+const IOS_MEDIA = [
+	`${LRM}[30/08/26, 18:54:25] Mafe: ${LRM}<attached: 00000005-AUDIO-2026-08-30-18-54-25.opus>`,
+	`${LRM}[30/08/26, 18:55:00] Oscar Neto: precisa entrar pelo gov ${LRM}<attached: 00000006-PHOTO-2026-08-30-18-55-00.jpg>`,
+	`${LRM}[30/08/26, 18:56:00] Oscar Neto: Proposta.pdf \u2022 ${LRM}5 pages ${LRM}<attached: 00000007-Proposta.pdf>`,
+	"[30/08/26, 18:57:00] Mafe: primeira linha da legenda",
+	`segunda linha ${LRM}<attached: 00000008-PHOTO-2026-08-30-18-57-00.jpg>`,
+	`${LRM}[30/08/26, 18:58:00] Oscar Neto: ${LRM}<attached: 00000009-${NFD_NAME}>`,
+	"[30/08/26, 18:59:00] Mafe: veja page 5",
+	`[30/08/26, 19:00:00] Mafe: ok ${LRM}combinado`,
+].join("\r\n");
+
+const IOS_OMITTED = [
+	`[30/08/26, 18:54:25] Mafe: ${LRM}image omitted`,
+	`[30/08/26, 18:55:00] Mafe: Doc.pdf \u2022 ${LRM}3 pages ${LRM}document omitted`,
+	`[30/08/26, 18:56:00] Mafe: ${LRM}GIF omitted`,
+	`[30/08/26, 18:57:00] Mafe: ${LRM}Contact card omitted`,
+].join("\r\n");
+
 // First lines are all day<=12 (ambiguous) with an ENGLISH encryption banner, so
 // a language-only fallback would wrongly pick MM/DD. A later line (27/05) is the
 // only one that disambiguates → detection must scan past the early lines.
@@ -108,7 +136,9 @@ const AMBIGUOUS_THEN_DDMM = [
 
 describe("detectZipLanguage", () => {
 	test("detects English zip filename", () => {
-		expect(detectZipLanguage("WhatsApp Chat with Bruno Teixeira.zip")).toBe("en");
+		expect(detectZipLanguage("WhatsApp Chat with Bruno Teixeira.zip")).toBe(
+			"en",
+		);
 	});
 
 	test("detects Portuguese zip filename", () => {
@@ -182,6 +212,104 @@ describe("iOS real-world quirks (CRLF + leading bidi marks)", () => {
 		expect(result.detectedFormat).toBe("DD/MM");
 		// 15/04/26 must be 15 April, not 4 March / invalid month 15
 		expect(result.messages[2]!.timestamp).toBe("2026-04-15T16:04:50");
+	});
+
+	test("links the <attached:> file of a bidi-prefixed line", () => {
+		const msg = parseChatLog(IOS_LEADING_MARK).messages[2]!;
+		expect(msg.type).toBe("media");
+		expect(msg.mediaFile).toBe("0000123-doc.pdf");
+		expect(msg.content).toBe("");
+	});
+});
+
+describe("iOS media markers", () => {
+	const media = parseChatLog(IOS_MEDIA, { dateFormat: "DD/MM" }).messages;
+
+	test("parses every message", () => {
+		expect(media.length).toBe(7);
+	});
+
+	test("audio attachment", () => {
+		const msg = media[0]!;
+		expect(msg.type).toBe("media");
+		expect(msg.subtype).toBe("audio");
+		expect(msg.mediaFile).toBe("00000005-AUDIO-2026-08-30-18-54-25.opus");
+		expect(msg.content).toBe("");
+	});
+
+	test("image attachment keeps its caption", () => {
+		const msg = media[1]!;
+		expect(msg.subtype).toBe("image");
+		expect(msg.mediaFile).toBe("00000006-PHOTO-2026-08-30-18-55-00.jpg");
+		expect(msg.content).toBe("precisa entrar pelo gov");
+	});
+
+	test("document drops the page-count preview and the title echo", () => {
+		const msg = media[2]!;
+		expect(msg.subtype).toBe("document");
+		expect(msg.mediaFile).toBe("00000007-Proposta.pdf");
+		expect(msg.content).toBe("");
+	});
+
+	test("multi-line caption with the marker on the continuation line", () => {
+		const msg = media[3]!;
+		expect(msg.mediaFile).toBe("00000008-PHOTO-2026-08-30-18-57-00.jpg");
+		expect(msg.content).toBe("primeira linha da legenda\nsegunda linha");
+		expect(msg.content).not.toContain("<attached:");
+	});
+
+	test("keeps NFD file names verbatim", () => {
+		const msg = media[4]!;
+		expect(msg.mediaFile).toBe(`00000009-${NFD_NAME}`);
+		expect(msg.mediaFile).not.toBe(`00000009-${NFD_NAME.normalize("NFC")}`);
+	});
+
+	test("prose mentioning pages stays a text message", () => {
+		const msg = media[5]!;
+		expect(msg.type).toBe("text");
+		expect(msg.content).toBe("veja page 5");
+	});
+
+	test("text message content keeps its bidi marks (stable IDs)", () => {
+		const msg = media[6]!;
+		expect(msg.type).toBe("text");
+		expect(msg.content).toBe(`ok ${LRM}combinado`);
+	});
+
+	test("omitted markers set isMediaOmitted with the right subtype", () => {
+		const omitted = parseChatLog(IOS_OMITTED, { dateFormat: "DD/MM" }).messages;
+		expect(omitted.map((m) => m.subtype)).toEqual([
+			"image",
+			"document",
+			"video",
+			"contact",
+		]);
+		expect(omitted.every((m) => m.isMediaOmitted && m.type === "media")).toBe(
+			true,
+		);
+		expect(omitted.every((m) => m.mediaFile === null)).toBe(true);
+		expect(omitted[1]!.content).toBe("Doc.pdf");
+		expect(omitted[0]!.content).toBe("");
+	});
+
+	test("extractIosAttachment", () => {
+		expect(extractIosAttachment("sem anexo")).toBeNull();
+		expect(
+			extractIosAttachment(`.cif ${LRM}<attached: 00000026-PHOTO.jpg>`),
+		).toEqual({ filename: "00000026-PHOTO.jpg", caption: ".cif" });
+		expect(
+			extractIosAttachment(
+				`CHAMADA.html.CIF ${LRM}<attached: 00000028-CHAMADA.html.CIF>`,
+			),
+		).toEqual({ filename: "00000028-CHAMADA.html.CIF", caption: "" });
+	});
+
+	test("matchIosOmitted", () => {
+		expect(matchIosOmitted("veja page 5")).toBeNull();
+		expect(matchIosOmitted(`${LRM}audio omitted`)).toEqual({
+			subtype: "audio",
+			rest: "",
+		});
 	});
 });
 

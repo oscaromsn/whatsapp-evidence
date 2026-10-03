@@ -7,7 +7,7 @@ import {
 	expect,
 	test,
 } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runIngest } from "../orchestrator";
@@ -105,6 +105,43 @@ describe("runIngest", () => {
 		expect(mdContent).toContain("contact: Bruno Teixeira");
 		expect(mdContent).toContain("type: individual");
 		expect(mdContent).toContain("# Bruno Teixeira —");
+
+		await rm(singleZipDir, { recursive: true, force: true });
+	}, 30000);
+
+	test("links iOS <attached:> media and renders clean content", async () => {
+		const singleZipDir = await mkdtemp(join(tmpdir(), "wae-ios-media-"));
+		await Bun.$`cp "${join(FIXTURES_DIR, "WhatsApp Chat with Equipe RenatoBruno.zip")}" ${singleZipDir}/`.quiet();
+
+		await runIngest(defaultOptions({ input: singleZipDir, split: "1w" }));
+
+		const index = await loadIndex(outputDir);
+		const linked = Object.values(index!.messages).filter((m) => m.mediaFile);
+		expect(linked.map((m) => m.mediaFile)).toEqual(["IMG-0001.jpg"]);
+		expect(linked[0]!.subtype).toBe("image");
+
+		const period = linked[0]!.period;
+		const md = await Bun.file(
+			join(outputDir, period, "Equipe RenatoBruno.md"),
+		).text();
+		expect(md).toContain("![[medias/IMG-0001.jpg]]");
+		expect(md).not.toContain("<attached:");
+		// The raw "[date] Sender:" prefix of bidi-prefixed lines must not leak
+		expect(md).not.toContain("[09/02/2026");
+		expect(md).not.toContain("\u200e");
+		expect(
+			await Bun.file(
+				join(outputDir, period, "medias", "IMG-0001.jpg"),
+			).exists(),
+		).toBe(true);
+		// Linked into the week folder without duplicating the staged file
+		const staged = await stat(
+			join(outputDir, "_medias_staging", "IMG-0001.jpg"),
+		);
+		const linkedCopy = await stat(
+			join(outputDir, period, "medias", "IMG-0001.jpg"),
+		);
+		expect(linkedCopy.ino).toBe(staged.ino);
 
 		await rm(singleZipDir, { recursive: true, force: true });
 	}, 30000);

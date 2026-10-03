@@ -80,6 +80,10 @@ export const IOS_OMITTED_PATTERNS: Array<[RegExp, MediaSubtype]> = [
 	[/(?:^|\s)document omitted$/i, "document"],
 ];
 
+// iOS prefixes every attached file with a per-chat sequence number
+// ("00000012-Proposta.pdf"); documents repeat their title (without it) as caption.
+const IOS_SEQ_PREFIX_RE = /^\d+-/;
+
 const ENCRYPTION_PATTERNS = [
 	"end-to-end encrypted",
 	"criptografia de ponta a ponta",
@@ -123,6 +127,41 @@ const STICKER_EXTENSIONS = new Set(["webp"]);
 const CONTACT_EXTENSIONS = new Set(["vcf"]);
 
 // ===== Public API =====
+
+// iOS media markers. Bidi marks are stripped only on a probe copy, so the content
+// (and therefore the message ID) of ordinary text messages is never altered.
+export function extractIosAttachment(
+	content: string,
+): { filename: string; caption: string } | null {
+	const probe = content.replace(INLINE_BIDI_MARKS_RE, "");
+	const match = probe.match(IOS_ATTACHED_RE);
+	if (!match || match.index === undefined) return null;
+
+	// Verbatim (no Unicode normalization): must equal the extracted file name
+	const filename = match[1]!.trim();
+	const caption = probe
+		.slice(0, match.index)
+		.replace(IOS_DOC_PREVIEW_RE, "")
+		.trim();
+	const isTitleEcho = caption === filename.replace(IOS_SEQ_PREFIX_RE, "");
+	return { filename, caption: isTitleEcho ? "" : caption };
+}
+
+export function matchIosOmitted(
+	content: string,
+): { subtype: MediaSubtype; rest: string } | null {
+	const probe = content.replace(INLINE_BIDI_MARKS_RE, "").trimEnd();
+	for (const [pattern, subtype] of IOS_OMITTED_PATTERNS) {
+		if (pattern.test(probe)) {
+			const rest = probe
+				.replace(pattern, "")
+				.replace(IOS_DOC_PREVIEW_RE, "")
+				.trim();
+			return { subtype, rest };
+		}
+	}
+	return null;
+}
 
 export function detectZipLanguage(zipFilename: string): ZipLanguage {
 	if (/Conversa do WhatsApp/i.test(zipFilename)) return "pt-br";
@@ -430,6 +469,24 @@ function processContent(rawContent: string, msg: ParsedMessage): string {
 			content = content.replace(pattern, "").trim();
 			return content;
 		}
+	}
+
+	// iOS attachment: "[caption] <attached: FILE>"
+	const iosAttachment = extractIosAttachment(content);
+	if (iosAttachment) {
+		msg.mediaFile = iosAttachment.filename;
+		msg.type = "media";
+		msg.subtype = classifyMediaFile(iosAttachment.filename);
+		return iosAttachment.caption;
+	}
+
+	// iOS export without media: "image omitted", "Doc.pdf • 3 pages document omitted"
+	const iosOmitted = matchIosOmitted(content);
+	if (iosOmitted) {
+		msg.isMediaOmitted = true;
+		msg.type = "media";
+		msg.subtype = iosOmitted.subtype;
+		return iosOmitted.rest;
 	}
 
 	// Check for file attached

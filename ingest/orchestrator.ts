@@ -3,13 +3,19 @@
 // Main pipeline: extract zips → parse → dedup → split → render → save
 // =============================================================================
 
-import { mkdir } from "node:fs/promises";
+import { link, mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { logHeader } from "../shared";
 import { detectSelf } from "./contacts";
 import { deduplicateMessages } from "./dedup";
 import { processMediaFiles } from "./media";
-import { parseChatLog } from "./parser";
+import {
+	extractIosAttachment,
+	INLINE_BIDI_MARKS_RE,
+	LEADING_MARKS_RE,
+	matchIosOmitted,
+	parseChatLog,
+} from "./parser";
 import { renderPeriodMarkdown } from "./renderer";
 import { assignPeriod } from "./splitter";
 import {
@@ -418,10 +424,13 @@ function toRenderedMessage(
 	const contentLines = chatLines.slice(startLine - 1, endLine);
 	const rawContent = contentLines.join("\n");
 
-	// Detect media omitted BEFORE content extraction strips the markers
+	// Detect media omitted BEFORE content extraction strips the markers.
+	// A media entry without a file is how the parser records an omitted
+	// attachment (Android "<Media omitted>" and iOS "image omitted" alike).
 	const isMediaOmitted =
 		rawContent.includes("<Media omitted>") ||
-		rawContent.includes("<Mídia oculta>");
+		rawContent.includes("<Mídia oculta>") ||
+		(entry.type === "media" && !entry.mediaFile);
 
 	let content = extractMessageContent(rawContent);
 
@@ -463,7 +472,10 @@ function toRenderedMessage(
 	};
 }
 
-function extractMessageContent(rawLine: string): string {
+function extractMessageContent(rawBlock: string): string {
+	// iOS prefixes many lines with bidi marks, which break the ^\[ anchors below
+	const rawLine = rawBlock.replace(LEADING_MARKS_RE, "");
+
 	// Extract content after "timestamp - sender: content"
 	const match = rawLine.match(
 		/^\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s\d{1,2}:\d{2}(?::\d{2})?(?:\s[AP]M)?\]?\s[-–]\s(?:[^:]+:\s?)?(.*)/s,
@@ -477,6 +489,13 @@ function extractMessageContent(rawLine: string): string {
 		);
 		content = bracketMatch ? (bracketMatch[1] ?? "") : rawLine;
 	}
+
+	// iOS media markers: keep only the caption (or the omitted document's name)
+	const iosAttachment = extractIosAttachment(content);
+	const iosOmitted = iosAttachment ? null : matchIosOmitted(content);
+	if (iosAttachment) content = iosAttachment.caption;
+	else if (iosOmitted) content = iosOmitted.rest;
+	content = content.replace(INLINE_BIDI_MARKS_RE, "");
 
 	// Strip media patterns from content
 	// Remove "(file attached)" / "(arquivo anexado)" lines and filename echo
@@ -521,7 +540,8 @@ async function loadAllCachedChatLogs(
 		const glob = new Bun.Glob("*.txt");
 		for await (const file of glob.scan({ cwd: cachePath, absolute: true })) {
 			const text = await Bun.file(file).text();
-			result.set(zipName, text.split("\n"));
+			// Same line splitting as parseChatLog, so sourceLineRange lines up
+			result.set(zipName, text.split(/\r\n|\r|\n/));
 			break; // one chat log per zip
 		}
 	}
@@ -570,8 +590,8 @@ async function ensureMediasDir(
 		const dstFile = Bun.file(dstPath);
 
 		if ((await srcFile.exists()) && !(await dstFile.exists())) {
-			const content = await srcFile.arrayBuffer();
-			await Bun.write(dstPath, content);
+			// Hardlink to avoid duplicating media on disk; copy when not possible
+			await link(srcPath, dstPath).catch(() => Bun.write(dstPath, srcFile));
 		}
 	}
 }
