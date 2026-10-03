@@ -5,6 +5,8 @@
 // =============================================================================
 
 import type {
+	DateFormat,
+	DateFormatSource,
 	MediaSubtype,
 	ParsedMessage,
 	ParseResult,
@@ -168,38 +170,103 @@ export function detectZipLanguage(zipFilename: string): ZipLanguage {
 	return "en";
 }
 
-export function detectDateFormat(
-	lines: string[],
-	zipLanguage: ZipLanguage,
-): "DD/MM" | "MM/DD" | null {
-	// Scan all message-start lines and return as soon as a value disambiguates the
-	// order. We do NOT cap the sample (a previous 20-line cap misfired on chats that
-	// open with several days of day<=12 dates, e.g. "10/02"), and we tolerate the
-	// leading bidi/zero-width marks WhatsApp prepends to many lines.
-	const dateRe = new RegExp(
-		`${LEADING_MARKS_RE.source.replace(/\+$/, "*")}\\[?(\\d{1,2})\\/(\\d{1,2})\\/\\d{2,4}`,
-	);
+// ===== Date order =====
+// A chat's dates are day-first (DD/MM, a Brazilian phone) or month-first (MM/DD, US).
+// The order is decided by evidence, never by the language of the export's banner:
+// an iPhone set to English still writes Brazilian dates.
 
+// Date fields at the start of a message line, tolerating WhatsApp's leading bidi marks
+const DATE_FIELDS_RE = new RegExp(
+	`${LEADING_MARKS_RE.source.replace(/\+$/, "*")}\\[?(\\d{1,2})\\/(\\d{1,2})\\/\\d{2,4}`,
+);
+
+/**
+ * Evidence from the dates themselves: a field above 12 can only be the day. Scans the
+ * whole chat (a 20-line cap once misfired on chats opening with days <= 12). Null when
+ * no date ever disambiguates.
+ */
+export function detectDateFormat(lines: string[]): DateFormat | null {
 	for (const line of lines) {
-		const match = line.match(dateRe);
+		const match = line.match(DATE_FIELDS_RE);
 		if (!match) continue;
-
 		const first = Number.parseInt(match[1]!, 10);
 		const second = Number.parseInt(match[2]!, 10);
-
-		// If first field > 12, it must be the day → DD/MM
 		if (first > 12) return "DD/MM";
-		// If second field > 12, it must be the day → MM/DD
 		if (second > 12) return "MM/DD";
 	}
+	return null;
+}
 
-	// Fully ambiguous (no field ever exceeds 12): fall back to language hint
-	return zipLanguage === "pt-br" ? "DD/MM" : "MM/DD";
+// Attachment names that embed the real date: iOS "00000019-PHOTO-2026-10-02-09-14-31.jpg",
+// Android "IMG-20260326-WA0025.jpg".
+const ATTACHMENT_DATE_RES = [
+	/-(?:PHOTO|AUDIO|VIDEO|STICKER|GIF)-(\d{4})-(\d{2})-(\d{2})-/,
+	/\b(?:IMG|VID|AUD|PTT|STK|DOC)-(\d{4})(\d{2})(\d{2})-WA\d+/,
+];
+
+/**
+ * Evidence from attachments: the date in an attachment's name, compared with the date
+ * of the message carrying it, shows which field is the day. A majority vote, since a
+ * forwarded file can carry another date.
+ */
+export function detectDateFormatFromAttachments(
+	lines: string[],
+): DateFormat | null {
+	let dayFirst = 0;
+	let monthFirst = 0;
+	let fields: [number, number] | null = null;
+	for (const line of lines) {
+		const start = line.match(DATE_FIELDS_RE);
+		if (start) {
+			fields = [Number.parseInt(start[1]!, 10), Number.parseInt(start[2]!, 10)];
+		}
+		if (!fields || fields[0] === fields[1]) continue;
+		for (const re of ATTACHMENT_DATE_RES) {
+			const named = line.match(re);
+			if (!named) continue;
+			const month = Number.parseInt(named[2]!, 10);
+			const day = Number.parseInt(named[3]!, 10);
+			if (fields[0] === day && fields[1] === month) dayFirst++;
+			else if (fields[0] === month && fields[1] === day) monthFirst++;
+		}
+	}
+	if (dayFirst > monthFirst) return "DD/MM";
+	if (monthFirst > dayFirst) return "MM/DD";
+	return null;
+}
+
+/** Forced order, else the dates' evidence, else the attachments', else the default. */
+export function resolveDateFormat(
+	lines: string[],
+	options: { dateFormat?: DateFormat; defaultDateFormat?: DateFormat } = {},
+): { format: DateFormat; source: DateFormatSource } {
+	if (options.dateFormat)
+		return { format: options.dateFormat, source: "forced" };
+	const fromDates = detectDateFormat(lines);
+	if (fromDates) return { format: fromDates, source: "dates" };
+	const fromAttachments = detectDateFormatFromAttachments(lines);
+	if (fromAttachments)
+		return { format: fromAttachments, source: "attachments" };
+	return { format: options.defaultDateFormat ?? "DD/MM", source: "default" };
+}
+
+/** A date that exists on the calendar: rejects month 25, 31/02 and the like. */
+function isRealDate(timestamp: string): boolean {
+	const [year, month, day] = timestamp
+		.slice(0, 10)
+		.split("-")
+		.map((part) => Number.parseInt(part, 10)) as [number, number, number];
+	const date = new Date(Date.UTC(year, month - 1, day));
+	return (
+		date.getUTCFullYear() === year &&
+		date.getUTCMonth() === month - 1 &&
+		date.getUTCDate() === day
+	);
 }
 
 export function parseChatLog(
 	text: string,
-	options: { dateFormat?: "DD/MM" | "MM/DD" } = {},
+	options: { dateFormat?: DateFormat; defaultDateFormat?: DateFormat } = {},
 ): ParseResult {
 	// Split on CRLF, lone CR, or LF. WhatsApp exports are commonly CRLF; a
 	// leftover trailing "\r" breaks the message-start regexes (the `.` in `(.*)$`
@@ -209,10 +276,10 @@ export function parseChatLog(
 	const lines = text.replace(/(?:\r\n|\r|\n)+$/, "").split(/\r\n|\r|\n/);
 	const warnings: string[] = [];
 
-	// Detect date format if not provided
-	const zipLanguage: ZipLanguage = detectLanguageFromContent(lines);
-	const dateFormat =
-		options.dateFormat ?? detectDateFormat(lines, zipLanguage) ?? "MM/DD";
+	const { format: dateFormat, source: dateFormatSource } = resolveDateFormat(
+		lines,
+		options,
+	);
 
 	// First pass: group lines into raw message blocks
 	const blocks: Array<{
@@ -250,6 +317,7 @@ export function parseChatLog(
 
 	// Second pass: parse each block into a ParsedMessage
 	const messages: ParsedMessage[] = [];
+	const impossible: string[] = [];
 
 	for (const block of blocks) {
 		const timestamp = resolveTimestamp(
@@ -258,6 +326,10 @@ export function parseChatLog(
 			block.ampm,
 			dateFormat,
 		);
+		if (!isRealDate(timestamp)) {
+			impossible.push(`linha ${block.startLine} ("${block.datePart}")`);
+			continue;
+		}
 
 		const msg = parseMessageBody(block.body, timestamp, [
 			block.startLine,
@@ -306,19 +378,20 @@ export function parseChatLog(
 		messages.push(msg);
 	}
 
-	return { messages, detectedFormat: dateFormat, warnings };
+	// A date that cannot exist means the order is wrong (e.g. a US export forced to
+	// DD/MM turns "1/25/26" into month 25) — refuse rather than file it years away
+	if (impossible.length > 0) {
+		const other = dateFormat === "DD/MM" ? "MM/DD" : "DD/MM";
+		throw new Error(
+			`${impossible.length} data(s) impossível(is) lida(s) como ${dateFormat}: ${impossible.slice(0, 3).join(", ")}. ` +
+				`A conversa usa a ordem ${other}: rode sem --date-format (detecção automática) ou com --date-format ${other}`,
+		);
+	}
+
+	return { messages, detectedFormat: dateFormat, dateFormatSource, warnings };
 }
 
 // ===== Internal Functions =====
-
-function detectLanguageFromContent(lines: string[]): ZipLanguage {
-	for (const line of lines.slice(0, 5)) {
-		if (/criptografia de ponta a ponta/i.test(line)) return "pt-br";
-		if (/end-to-end encrypted/i.test(line)) return "en";
-		if (/Conversa do WhatsApp/i.test(line)) return "pt-br";
-	}
-	return "en";
-}
 
 interface LineParseResult {
 	datePart: string;

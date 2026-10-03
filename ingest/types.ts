@@ -19,7 +19,8 @@ export interface IngestOptions {
 	force: boolean;
 	self: string | null;
 	timezone: string;
-	dateFormat: "DD/MM" | "MM/DD" | null;
+	dateFormat: DateFormat | null;
+	dateFormatDefault: DateFormat; // for chats whose dates never disambiguate
 	aliases: Map<string, string>;
 	concurrency: number;
 	regenerate: boolean;
@@ -65,11 +66,18 @@ export interface ParsedMessage {
 
 export interface ParseResult {
 	messages: ParsedMessage[];
-	detectedFormat: "DD/MM" | "MM/DD";
+	detectedFormat: DateFormat;
+	dateFormatSource: DateFormatSource;
 	warnings: string[];
 }
 
 export type ZipLanguage = "pt-br" | "en";
+
+export type DateFormat = "DD/MM" | "MM/DD";
+// How a chat's date order was decided: forced by --date-format, proven by its dates
+// (a field above 12) or by attachment names that embed the date, or the default
+// for chats whose dates are all ambiguous.
+export type DateFormatSource = "forced" | "dates" | "attachments" | "default";
 
 // ===== Zip Extraction =====
 
@@ -79,6 +87,7 @@ export interface ExtractedZip {
 	mediaFiles: string[];
 	encoding: "utf-8" | "latin-1";
 	zipFilename: string;
+	exportedAt: Date | null; // the chat log's mtime inside the zip: when it was exported
 }
 
 // ===== Evidence Index (.whatsapp-evidence.json) =====
@@ -104,7 +113,8 @@ export interface ContactEntry {
 	sourceZips: string[];
 	messageCount: number;
 	sanitizedName: string;
-	dateFormat: "DD/MM" | "MM/DD";
+	dateFormat: DateFormat;
+	dateFormatSource?: DateFormatSource;
 	encoding: string;
 }
 

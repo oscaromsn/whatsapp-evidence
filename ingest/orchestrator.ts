@@ -31,6 +31,7 @@ import {
 	updateContactMeta,
 } from "./store";
 import type {
+	DateFormatSource,
 	EvidenceIndex,
 	IngestOptions,
 	MessageEntry,
@@ -163,14 +164,24 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 		log.info(`Codificação: ${extracted.encoding}`);
 		log.info(`Mídias: ${extracted.mediaFiles.length} arquivo(s)`);
 
-		// Parse the chat log
+		// Parse the chat log. A wrong date order is refused per zip, never filed
 		const chatText = await Bun.file(extracted.chatLogPath).text();
-		const parseResult = parseChatLog(chatText, {
-			dateFormat: options.dateFormat ?? undefined,
-		});
+		let parseResult: ReturnType<typeof parseChatLog>;
+		try {
+			parseResult = parseChatLog(chatText, {
+				dateFormat: options.dateFormat ?? undefined,
+				defaultDateFormat: options.dateFormatDefault,
+			});
+			assertNotAfterExport(parseResult.messages, extracted.exportedAt);
+		} catch (err) {
+			log.error(`${zipFilename}: ${err instanceof Error ? err.message : err}`);
+			continue;
+		}
 
 		log.info(`Mensagens: ${parseResult.messages.length}`);
-		log.info(`Formato data: ${parseResult.detectedFormat}`);
+		log.info(
+			`Formato data: ${parseResult.detectedFormat} (${DATE_SOURCE_LABELS[parseResult.dateFormatSource]})`,
+		);
 
 		for (const w of parseResult.warnings) {
 			log.verbose(w);
@@ -214,6 +225,7 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 		updateContactMeta(index, contactName, {
 			type: isGroup ? "group" : "individual",
 			dateFormat: parseResult.detectedFormat,
+			dateFormatSource: parseResult.dateFormatSource,
 			encoding: extracted.encoding,
 		});
 
@@ -420,6 +432,40 @@ async function renderContactMarkdown(
 			log.verbose(`  Escrito: ${outputPath}`);
 		}
 	}
+}
+
+const DATE_SOURCE_LABELS: Record<DateFormatSource, string> = {
+	forced: "forçado por --date-format",
+	dates: "comprovado pelas datas",
+	attachments: "comprovado pelos nomes dos anexos",
+	default: "datas ambíguas: padrão --date-format-default",
+};
+
+/** Naive local "YYYY-MM-DDTHH:MM:SS", the form message timestamps are stored in. */
+const toNaiveLocal = (date: Date): string =>
+	date.toLocaleString("sv-SE", { hour12: false }).replace(" ", "T");
+
+/**
+ * No message can be newer than the export itself. A day of slack absorbs clock and
+ * timezone quirks; anything beyond is a misread date order (the old MM/DD fallback
+ * filed 11/08 messages in November).
+ */
+function assertNotAfterExport(
+	messages: Array<{ timestamp: string }>,
+	exportedAt: Date | null,
+): void {
+	if (!exportedAt) return;
+	const limit = toNaiveLocal(new Date(exportedAt.getTime() + 86_400_000));
+	const late = messages.filter((m) => m.timestamp > limit);
+	if (late.length === 0) return;
+	const latest = late.reduce(
+		(max, m) => (m.timestamp > max ? m.timestamp : max),
+		"",
+	);
+	throw new Error(
+		`${late.length} mensagem(ns) com data posterior à exportação (${toNaiveLocal(exportedAt).slice(0, 10)}), ` +
+			`a mais recente em ${latest.slice(0, 10)} — a ordem dia/mês foi lida errado; use --date-format`,
+	);
 }
 
 function toRenderedMessage(

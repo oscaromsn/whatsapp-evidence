@@ -308,7 +308,9 @@ export function detectOverlappingContact(
 export function updateContactMeta(
 	index: EvidenceIndex,
 	contactName: string,
-	meta: Partial<Pick<ContactEntry, "type" | "dateFormat" | "encoding">>,
+	meta: Partial<
+		Pick<ContactEntry, "type" | "dateFormat" | "dateFormatSource" | "encoding">
+	>,
 ): void {
 	const contact = index.contacts[contactName];
 	if (!contact) return;

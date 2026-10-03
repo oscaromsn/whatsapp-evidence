@@ -16,6 +16,7 @@ describe("parseIngestArgs", () => {
 		expect(opts.self).toBeNull();
 		expect(opts.timezone).toBe("America/Sao_Paulo");
 		expect(opts.dateFormat).toBeNull();
+		expect(opts.dateFormatDefault).toBe("DD/MM");
 		expect(opts.aliases.size).toBe(0);
 		expect(opts.concurrency).toBe(3);
 		expect(opts.regenerate).toBe(false);
@@ -98,6 +99,13 @@ describe("parseIngestArgs", () => {
 	test("rejects malformed media dates", () => {
 		expect(() => parseIngestArgs(["--media-since", "01/09/2026"])).toThrow();
 		expect(() => parseIngestArgs(["--media-until"])).toThrow();
+	});
+
+	test("parses --date-format-default and rejects bad values", () => {
+		expect(
+			parseIngestArgs(["--date-format-default", "MM/DD"]).dateFormatDefault,
+		).toBe("MM/DD");
+		expect(() => parseIngestArgs(["--date-format-default", "ISO"])).toThrow();
 	});
 
 	test("parses --self", () => {

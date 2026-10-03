@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
 	detectDateFormat,
+	detectDateFormatFromAttachments,
 	detectZipLanguage,
 	extractIosAttachment,
 	matchIosOmitted,
 	parseChatLog,
+	resolveDateFormat,
 } from "../parser";
 
 // ===== Inline fixtures =====
@@ -154,32 +156,105 @@ describe("detectZipLanguage", () => {
 
 describe("detectDateFormat", () => {
 	test("detects DD/MM when day > 12", () => {
-		const lines = UNAMBIGUOUS_DDMM.split("\n");
-		expect(detectDateFormat(lines, "pt-br")).toBe("DD/MM");
+		expect(detectDateFormat(UNAMBIGUOUS_DDMM.split("\n"))).toBe("DD/MM");
 	});
 
 	test("detects MM/DD when day > 12 in second position", () => {
-		const lines = UNAMBIGUOUS_MMDD.split("\n");
-		expect(detectDateFormat(lines, "en")).toBe("MM/DD");
+		expect(detectDateFormat(UNAMBIGUOUS_MMDD.split("\n"))).toBe("MM/DD");
 	});
 
-	test("falls back to language hint for ambiguous dates", () => {
-		const lines = AMBIGUOUS_DATES.split("\n");
-		expect(detectDateFormat(lines, "en")).toBe("MM/DD");
-		expect(detectDateFormat(lines, "pt-br")).toBe("DD/MM");
+	test("returns null when no date disambiguates — the banner language is no evidence", () => {
+		expect(detectDateFormat(AMBIGUOUS_DATES.split("\n"))).toBeNull();
 	});
 
 	test("scans past early ambiguous lines to find a disambiguating date", () => {
 		// All but the last line are day<=12; only line 27 (27/05) disambiguates.
-		// Language hint is "en" (would wrongly yield MM/DD) — detection must not
-		// stop early and must not fall back to language here.
-		const lines = AMBIGUOUS_THEN_DDMM.split("\r\n");
-		expect(detectDateFormat(lines, "en")).toBe("DD/MM");
+		expect(detectDateFormat(AMBIGUOUS_THEN_DDMM.split("\r\n"))).toBe("DD/MM");
 	});
 
 	test("tolerates leading bidi marks when reading the date", () => {
-		const lines = IOS_LEADING_MARK.split("\r\n");
-		expect(detectDateFormat(lines, "en")).toBe("DD/MM");
+		expect(detectDateFormat(IOS_LEADING_MARK.split("\r\n"))).toBe("DD/MM");
+	});
+});
+
+describe("date order from attachment names", () => {
+	test("an iOS attachment's embedded date proves the order of an ambiguous chat", () => {
+		const dayFirst = [
+			`${LRM}[02/09/26, 10:56:12] Ana: ${LRM}<attached: 00000003-PHOTO-2026-09-02-10-56-11.jpg>`,
+		];
+		const monthFirst = [
+			`${LRM}[02/09/26, 10:56:12] Ana: ${LRM}<attached: 00000003-PHOTO-2026-02-09-10-56-11.jpg>`,
+		];
+		expect(detectDateFormatFromAttachments(dayFirst)).toBe("DD/MM");
+		expect(detectDateFormatFromAttachments(monthFirst)).toBe("MM/DD");
+	});
+
+	test("Android attachment names count too", () => {
+		expect(
+			detectDateFormatFromAttachments([
+				"3/9/26, 10:00 - Bruno: IMG-20260309-WA0025.jpg (file attached)",
+			]),
+		).toBe("MM/DD");
+	});
+
+	test("no attachment evidence → null", () => {
+		expect(
+			detectDateFormatFromAttachments(AMBIGUOUS_DATES.split("\n")),
+		).toBeNull();
+	});
+});
+
+describe("resolveDateFormat", () => {
+	const ambiguous = AMBIGUOUS_DATES.split("\n");
+
+	test("forced, then dates, then attachments, then the default", () => {
+		expect(resolveDateFormat(ambiguous, { dateFormat: "MM/DD" })).toEqual({
+			format: "MM/DD",
+			source: "forced",
+		});
+		expect(resolveDateFormat(UNAMBIGUOUS_MMDD.split("\n"))).toEqual({
+			format: "MM/DD",
+			source: "dates",
+		});
+		expect(
+			resolveDateFormat([
+				`[02/09/26, 10:56:12] Ana: <attached: 00000003-AUDIO-2026-09-02-10-56-11.opus>`,
+			]),
+		).toEqual({ format: "DD/MM", source: "attachments" });
+		expect(resolveDateFormat(ambiguous)).toEqual({
+			format: "DD/MM",
+			source: "default",
+		});
+		expect(
+			resolveDateFormat(ambiguous, { defaultDateFormat: "MM/DD" }),
+		).toEqual({
+			format: "MM/DD",
+			source: "default",
+		});
+	});
+
+	test("regression: a short English-banner chat with Brazilian dates is not read as US", () => {
+		const aline = [
+			`[02/09/26, 10:56:12] Aline Ribeiro: ${LRM}Messages and calls are end-to-end encrypted.`,
+			"[02/09/26, 13:32:03] Oscar Neto: combinado",
+		].join("\r\n");
+		const result = parseChatLog(aline);
+		expect(result.dateFormatSource).toBe("default");
+		expect(result.messages.map((m) => m.timestamp)).toEqual([
+			"2026-09-02T10:56:12",
+			"2026-09-02T13:32:03",
+		]);
+	});
+
+	test("an impossible date under a forced order is refused, not filed years away", () => {
+		const usExport =
+			"1/25/26, 10:09 - Bruno: oi\n5/5/26, 11:00 - Bruno: tudo bem?";
+		expect(() => parseChatLog(usExport, { dateFormat: "DD/MM" })).toThrow(
+			"impossível",
+		);
+		expect(parseChatLog(usExport).messages[0]!.timestamp).toBe(
+			"2026-01-25T10:09:00",
+		);
 	});
 });
 
@@ -601,7 +676,9 @@ This is clearly not a valid start line but is a continuation
 
 	describe("date parsing", () => {
 		test("handles 2-digit year (EN: M/D/YY)", () => {
-			const result = parseChatLog("1/4/26, 00:09 - User: Test");
+			const result = parseChatLog("1/4/26, 00:09 - User: Test", {
+				dateFormat: "MM/DD",
+			});
 			expect(result.messages[0]!.timestamp).toBe("2026-01-04T00:09:00");
 		});
 
@@ -613,17 +690,23 @@ This is clearly not a valid start line but is a continuation
 		});
 
 		test("handles AM/PM time format", () => {
-			const result = parseChatLog("3/1/26, 2:30 PM - User: Test");
+			const result = parseChatLog("3/1/26, 2:30 PM - User: Test", {
+				dateFormat: "MM/DD",
+			});
 			expect(result.messages[0]!.timestamp).toBe("2026-03-01T14:30:00");
 		});
 
 		test("handles 12:xx AM correctly", () => {
-			const result = parseChatLog("3/1/26, 12:30 AM - User: Test");
+			const result = parseChatLog("3/1/26, 12:30 AM - User: Test", {
+				dateFormat: "MM/DD",
+			});
 			expect(result.messages[0]!.timestamp).toBe("2026-03-01T00:30:00");
 		});
 
 		test("handles 12:xx PM correctly", () => {
-			const result = parseChatLog("3/1/26, 12:30 PM - User: Test");
+			const result = parseChatLog("3/1/26, 12:30 PM - User: Test", {
+				dateFormat: "MM/DD",
+			});
 			expect(result.messages[0]!.timestamp).toBe("2026-03-01T12:30:00");
 		});
 	});

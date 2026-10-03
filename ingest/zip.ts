@@ -3,7 +3,7 @@
 // Extracts WhatsApp exported .zip files, discovers chat logs, extracts media
 // =============================================================================
 
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { parseContactFromZipName } from "./contacts";
 import type { ExtractedZip } from "./types";
@@ -77,8 +77,12 @@ export async function extractZip(
 			throw new Error(`Nenhum log de conversa encontrado em: ${zipFilename}`);
 		}
 
-		// Read and decode the chat log
+		// Read and decode the chat log. unzip restores each entry's mtime, so the
+		// log's mtime is when WhatsApp exported it — no message can be later than that
 		const rawChatLogPath = join(extractDir, chatLogName);
+		const exportedAt = await stat(rawChatLogPath)
+			.then((info) => info.mtime)
+			.catch(() => null);
 		const chatContent = await Bun.file(rawChatLogPath).arrayBuffer();
 		const { text, encoding } = decodeText(Buffer.from(chatContent));
 
@@ -125,6 +129,7 @@ export async function extractZip(
 			mediaFiles,
 			encoding,
 			zipFilename,
+			exportedAt,
 		};
 	} finally {
 		await Bun.$`rm -rf ${extractDir}`.quiet().nothrow();

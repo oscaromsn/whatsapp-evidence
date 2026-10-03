@@ -7,7 +7,7 @@ import {
 	expect,
 	test,
 } from "bun:test";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runIngest } from "../orchestrator";
@@ -32,6 +32,7 @@ function defaultOptions(overrides: Partial<IngestOptions> = {}): IngestOptions {
 		self: "Oscar Neto",
 		timezone: "America/Sao_Paulo",
 		dateFormat: null,
+		dateFormatDefault: "DD/MM",
 		aliases: new Map(),
 		concurrency: 3,
 		regenerate: false,
@@ -190,6 +191,35 @@ describe("runIngest", () => {
 			"`10:00` **Ana:** nova",
 		]);
 		await rm(dir, { recursive: true, force: true });
+	}, 30000);
+
+	test("refuses a zip whose messages are dated after its own export", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "wae-export-time-"));
+		const stage = await mkdtemp(join(tmpdir(), "wae-export-time-stage-"));
+		const log = join(stage, "_chat.txt");
+		// 11/08 (11 August) read as MM/DD lands in November, after a September export
+		await Bun.write(
+			log,
+			"[07/08/26, 10:00:00] Otavio: oi\r\n[11/08/26, 09:00:00] Otavio: ok\r\n",
+		);
+		const exported = new Date("2026-09-03T12:00:00");
+		await utimes(log, exported, exported);
+		await Bun.$`zip -q -j ${join(dir, "WhatsApp Chat - Otavio.zip")} ${log}`.quiet();
+
+		await runIngest(
+			defaultOptions({ input: dir, split: "1w", dateFormat: "MM/DD" }),
+		);
+		const index = await loadIndex(outputDir);
+		expect(index?.contacts["WhatsApp Chat - Otavio"]).toBeUndefined();
+
+		// Read in the right order, the same export is accepted
+		await runIngest(defaultOptions({ input: dir, split: "1w" }));
+		const accepted = await loadIndex(outputDir);
+		expect(accepted!.contacts["WhatsApp Chat - Otavio"]!.dateFormatSource).toBe(
+			"default",
+		);
+		await rm(dir, { recursive: true, force: true });
+		await rm(stage, { recursive: true, force: true });
 	}, 30000);
 
 	test("incremental run skips already-ingested messages", async () => {

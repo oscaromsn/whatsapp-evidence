@@ -28,7 +28,9 @@ Opções:
   --force              Pular confirmações interativas
   --self <nome>        Seu nome como aparece nos exports
   --timezone <tz>      Fuso horário IANA (padrão: America/Sao_Paulo)
-  --date-format <fmt>  Forçar formato: DD/MM ou MM/DD
+  --date-format <fmt>  Forçar formato em todas as conversas: DD/MM ou MM/DD
+  --date-format-default <fmt>
+                       Formato das conversas cujas datas são ambíguas (padrão: DD/MM)
   --alias <de>=<para>  Unificar nomes (repetível)
   --concurrency <n>    Chamadas API paralelas (padrão: 3)
   --contact <nome>     Escopo para regeneração de contato específico
@@ -53,6 +55,7 @@ export function parseIngestArgs(args: string[]): IngestOptions {
 		self: null,
 		timezone: "America/Sao_Paulo",
 		dateFormat: null,
+		dateFormatDefault: "DD/MM",
 		aliases: new Map(),
 		concurrency: 3,
 		regenerate: false,
@@ -136,6 +139,15 @@ export function parseIngestArgs(args: string[]): IngestOptions {
 					);
 				}
 				options.dateFormat = next as "DD/MM" | "MM/DD";
+				i++;
+				break;
+			case "--date-format-default":
+				if (!VALID_DATE_FORMATS.has(next!)) {
+					throw new Error(
+						`Valor inválido para --date-format-default: ${next}. Use: DD/MM ou MM/DD`,
+					);
+				}
+				options.dateFormatDefault = next as "DD/MM" | "MM/DD";
 				i++;
 				break;
 			case "--alias": {
