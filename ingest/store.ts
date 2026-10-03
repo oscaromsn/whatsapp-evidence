@@ -85,19 +85,30 @@ export function mergeMessages(
 		}
 	}
 
-	// Build a lookup of existing messages by timestamp+sender for media matching
-	const existingByMediaKey = new Map<
+	// Lookups by timestamp+sender for media matching. Only genuine media-omitted
+	// entries (type "media" without a file) may be upgraded — a text message that
+	// shares timestamp+sender with a following attachment must never be replaced.
+	const omittedByMediaKey = new Map<
 		string,
 		{ id: string; entry: MessageEntry }
 	>();
+	const withMediaKeys = new Set<string>();
+	const trackMediaKey = (key: string, id: string, entry: MessageEntry) => {
+		if (entry.type !== "media") return;
+		if (entry.mediaFile) {
+			withMediaKeys.add(key);
+			omittedByMediaKey.delete(key);
+		} else if (!withMediaKeys.has(key)) {
+			omittedByMediaKey.set(key, { id, entry });
+		}
+	};
 	for (const [id, entry] of Object.entries(index.messages)) {
 		if (entry.contact === contactName) {
-			const key = computeMediaMatchKey(entry.timestamp, entry.sender);
-			// Store the media-omitted version so we can upgrade it later
-			const existing = existingByMediaKey.get(key);
-			if (!existing || !existing.entry.mediaFile) {
-				existingByMediaKey.set(key, { id, entry });
-			}
+			trackMediaKey(
+				computeMediaMatchKey(entry.timestamp, entry.sender),
+				id,
+				entry,
+			);
 		}
 	}
 
@@ -122,9 +133,9 @@ export function mergeMessages(
 		// Check for media-variant match: same timestamp+sender but
 		// one is <Media omitted> and the other has actual media
 		const mediaKey = computeMediaMatchKey(msg.timestamp, msg.sender);
-		const existingMatch = existingByMediaKey.get(mediaKey);
+		const existingMatch = omittedByMediaKey.get(mediaKey);
 
-		if (existingMatch && msg.mediaFile && !existingMatch.entry.mediaFile) {
+		if (existingMatch && msg.mediaFile) {
 			// Upgrade: existing is media-omitted, new has actual media
 			// Replace the existing entry with the media version
 			delete index.messages[existingMatch.id];
@@ -145,12 +156,12 @@ export function mergeMessages(
 				period,
 			};
 			index.messages[id] = entry;
-			existingByMediaKey.set(mediaKey, { id, entry });
+			trackMediaKey(mediaKey, id, entry);
 			upgraded++;
 			continue;
 		}
 
-		if (existingMatch && msg.isMediaOmitted && existingMatch.entry.mediaFile) {
+		if (msg.isMediaOmitted && withMediaKeys.has(mediaKey)) {
 			// Existing already has media, new is omitted — skip
 			skipped++;
 			continue;
@@ -176,7 +187,7 @@ export function mergeMessages(
 		};
 
 		index.messages[id] = entry;
-		existingByMediaKey.set(mediaKey, { id, entry });
+		trackMediaKey(mediaKey, id, entry);
 		added++;
 	}
 

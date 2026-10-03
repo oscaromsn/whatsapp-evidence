@@ -238,6 +238,82 @@ describe("mergeMessages", () => {
 			"export2.zip",
 		]);
 	});
+
+	test("keeps a text message that shares timestamp+sender with a following media message", () => {
+		const index = createEmptyIndex(defaultConfig);
+		const result = mergeMessages(
+			index,
+			"João Silva",
+			[
+				makeMsg({ content: "segue o documento" }),
+				makeMsg({
+					content: "",
+					type: "media",
+					subtype: "document",
+					mediaFile: "00000012-Proposta.pdf",
+				}),
+			],
+			"test.zip",
+			"1w",
+			"America/Sao_Paulo",
+		);
+
+		expect(result).toEqual({ added: 2, skipped: 0, upgraded: 0 });
+		const entries = Object.values(index.messages);
+		expect(entries.map((m) => m.type)).toEqual(["text", "media"]);
+		expect(entries[1]!.mediaFile).toBe("00000012-Proposta.pdf");
+	});
+
+	test("upgrades a media-omitted entry when the same message arrives with media", () => {
+		const index = createEmptyIndex(defaultConfig);
+		const omitted = makeMsg({
+			content: "",
+			type: "media",
+			subtype: "image",
+			isMediaOmitted: true,
+		});
+		const withMedia = makeMsg({
+			content: "",
+			type: "media",
+			subtype: "image",
+			mediaFile: "IMG-0001.jpg",
+		});
+
+		mergeMessages(
+			index,
+			"João Silva",
+			[omitted],
+			"sem-midia.zip",
+			"1w",
+			"America/Sao_Paulo",
+		);
+		const result = mergeMessages(
+			index,
+			"João Silva",
+			[withMedia],
+			"com-midia.zip",
+			"1w",
+			"America/Sao_Paulo",
+		);
+
+		expect(result).toEqual({ added: 0, skipped: 0, upgraded: 1 });
+		const entries = Object.values(index.messages);
+		expect(entries.length).toBe(1);
+		expect(entries[0]!.mediaFile).toBe("IMG-0001.jpg");
+		expect(entries[0]!.seq).toBe(1);
+
+		// Re-importing the media-omitted export afterwards is a no-op
+		const again = mergeMessages(
+			index,
+			"João Silva",
+			[omitted],
+			"sem-midia.zip",
+			"1w",
+			"America/Sao_Paulo",
+		);
+		expect(again).toEqual({ added: 0, skipped: 1, upgraded: 0 });
+		expect(Object.keys(index.messages).length).toBe(1);
+	});
 });
 
 describe("getExistingMessageIds", () => {
