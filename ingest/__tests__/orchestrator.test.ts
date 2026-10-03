@@ -25,6 +25,8 @@ function defaultOptions(overrides: Partial<IngestOptions> = {}): IngestOptions {
 		split: "1mo",
 		layout: "by-period",
 		media: "none",
+		mediaSince: null,
+		mediaUntil: null,
 		disclaimer: false,
 		force: false,
 		self: "Oscar Neto",

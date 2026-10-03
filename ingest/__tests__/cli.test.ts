@@ -9,6 +9,8 @@ describe("parseIngestArgs", () => {
 		expect(opts.split).toBe("1w");
 		expect(opts.layout).toBe("by-period");
 		expect(opts.media).toBe("none");
+		expect(opts.mediaSince).toBeNull();
+		expect(opts.mediaUntil).toBeNull();
 		expect(opts.disclaimer).toBe(false);
 		expect(opts.force).toBe(false);
 		expect(opts.self).toBeNull();
@@ -80,6 +82,22 @@ describe("parseIngestArgs", () => {
 
 	test("parses --verbose", () => {
 		expect(parseIngestArgs(["--verbose"]).verbose).toBe(true);
+	});
+
+	test("parses --media-since and --media-until", () => {
+		const opts = parseIngestArgs([
+			"--media-since",
+			"2026-09-01",
+			"--media-until",
+			"2026-10-04",
+		]);
+		expect(opts.mediaSince).toBe("2026-09-01");
+		expect(opts.mediaUntil).toBe("2026-10-04");
+	});
+
+	test("rejects malformed media dates", () => {
+		expect(() => parseIngestArgs(["--media-since", "01/09/2026"])).toThrow();
+		expect(() => parseIngestArgs(["--media-until"])).toThrow();
 	});
 
 	test("parses --self", () => {

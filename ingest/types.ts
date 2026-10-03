@@ -13,6 +13,8 @@ export interface IngestOptions {
 	split: SplitInterval;
 	layout: "by-period" | "by-contact";
 	media: "none" | "audio" | "images" | "all";
+	mediaSince: string | null; // "YYYY-MM-DD": only media of messages on/after
+	mediaUntil: string | null; // "YYYY-MM-DD": only media of messages on/before
 	disclaimer: boolean;
 	force: boolean;
 	self: string | null;

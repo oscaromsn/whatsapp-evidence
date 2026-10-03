@@ -22,6 +22,7 @@ import {
 	createEmptyIndex,
 	detectOverlappingContact,
 	getContactPeriods,
+	getLinkedMediaKeys,
 	getMessagesForPeriod,
 	loadIndex,
 	mergeMessages,
@@ -272,6 +273,11 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 	// Process media if requested
 	if (options.media !== "none") {
 		log.header("Processando mídias");
+		// --media-since/--media-until: only media linked to messages in the range
+		const inDateRange =
+			options.mediaSince || options.mediaUntil
+				? getLinkedMediaKeys(index, options.mediaSince, options.mediaUntil)
+				: null;
 		const pendingMedia = Object.entries(index.mediaProcessing)
 			.filter(([key, m]) => {
 				if (m.status !== "pending" && m.status !== "failed") return false;
@@ -283,6 +289,7 @@ export async function runIngest(options: IngestOptions): Promise<void> {
 				) {
 					return false;
 				}
+				if (inDateRange && !inDateRange.has(key)) return false;
 				return true;
 			})
 			.map(([key, entry]) => ({

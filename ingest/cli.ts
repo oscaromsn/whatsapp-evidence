@@ -8,6 +8,7 @@ const VALID_SPLITS = new Set(["1w", "2w", "1mo", "3mo", "1y"]);
 const VALID_LAYOUTS = new Set(["by-period", "by-contact"]);
 const VALID_MEDIA = new Set(["none", "audio", "images", "all"]);
 const VALID_DATE_FORMATS = new Set(["DD/MM", "MM/DD"]);
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const INGEST_HELP_TEXT = `
 whatsapp-evidence ingest - Ingestão de exportações WhatsApp (.zip)
@@ -21,6 +22,8 @@ Opções:
   --split <período>    Divisão temporal: 1w, 2w, 1mo, 3mo, 1y (padrão: 1w)
   --layout <tipo>      Organização: by-period, by-contact (padrão: by-period)
   --media <modo>       Processar mídia: none, audio, images, all (padrão: none)
+  --media-since <data> Só mídias de mensagens a partir de AAAA-MM-DD
+  --media-until <data> Só mídias de mensagens até AAAA-MM-DD (inclusive)
   --disclaimer         Incluir aviso legal OAB/CNJ
   --force              Pular confirmações interativas
   --self <nome>        Seu nome como aparece nos exports
@@ -43,6 +46,8 @@ export function parseIngestArgs(args: string[]): IngestOptions {
 		split: "1w",
 		layout: "by-period",
 		media: "none",
+		mediaSince: null,
+		mediaUntil: null,
 		disclaimer: false,
 		force: false,
 		self: null,
@@ -95,6 +100,17 @@ export function parseIngestArgs(args: string[]): IngestOptions {
 					);
 				}
 				options.media = next as "none" | "audio" | "images" | "all";
+				i++;
+				break;
+			case "--media-since":
+			case "--media-until":
+				if (!next || !ISO_DATE_RE.test(next)) {
+					throw new Error(
+						`Valor inválido para ${arg}: ${next}. Use: AAAA-MM-DD`,
+					);
+				}
+				if (arg === "--media-since") options.mediaSince = next;
+				else options.mediaUntil = next;
 				i++;
 				break;
 			case "--disclaimer":

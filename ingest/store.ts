@@ -199,6 +199,25 @@ export function mergeMessages(
 	return { added, skipped, upgraded };
 }
 
+/**
+ * Media keys ("<contact>/<file>") of messages dated within [since, until].
+ * Bounds are inclusive "YYYY-MM-DD" strings; null leaves that side open.
+ */
+export function getLinkedMediaKeys(
+	index: EvidenceIndex,
+	since: string | null,
+	until: string | null,
+): Set<string> {
+	const keys = new Set<string>();
+	for (const entry of Object.values(index.messages)) {
+		if (!entry.mediaFile) continue;
+		const day = entry.timestamp.slice(0, 10);
+		if ((since && day < since) || (until && day > until)) continue;
+		keys.add(`${entry.contact}/${entry.mediaFile}`);
+	}
+	return keys;
+}
+
 export function getExistingMessageIds(
 	index: EvidenceIndex,
 	contactName: string,

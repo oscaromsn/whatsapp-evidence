@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	createEmptyIndex,
 	getExistingMessageIds,
+	getLinkedMediaKeys,
 	loadIndex,
 	mergeMessages,
 	saveIndex,
@@ -313,6 +314,52 @@ describe("mergeMessages", () => {
 		);
 		expect(again).toEqual({ added: 0, skipped: 1, upgraded: 0 });
 		expect(Object.keys(index.messages).length).toBe(1);
+	});
+});
+
+describe("getLinkedMediaKeys", () => {
+	const index = createEmptyIndex(defaultConfig);
+	mergeMessages(
+		index,
+		"Equipe",
+		[
+			makeMsg({ timestamp: "2026-08-31T23:59:00", content: "agosto" }),
+			...[
+				"2026-08-31T23:59:59",
+				"2026-09-01T00:00:00",
+				"2026-10-04T23:00:00",
+			].map((timestamp, i) =>
+				makeMsg({
+					timestamp,
+					content: "",
+					type: "media",
+					subtype: "audio",
+					mediaFile: `0000000${i}-AUDIO.opus`,
+				}),
+			),
+		],
+		"test.zip",
+		"1w",
+		"America/Sao_Paulo",
+	);
+
+	test("returns every linked media key without bounds", () => {
+		expect(getLinkedMediaKeys(index, null, null)).toEqual(
+			new Set([
+				"Equipe/00000000-AUDIO.opus",
+				"Equipe/00000001-AUDIO.opus",
+				"Equipe/00000002-AUDIO.opus",
+			]),
+		);
+	});
+
+	test("applies inclusive day bounds", () => {
+		expect(getLinkedMediaKeys(index, "2026-09-01", "2026-10-04")).toEqual(
+			new Set(["Equipe/00000001-AUDIO.opus", "Equipe/00000002-AUDIO.opus"]),
+		);
+		expect(getLinkedMediaKeys(index, null, "2026-08-31")).toEqual(
+			new Set(["Equipe/00000000-AUDIO.opus"]),
+		);
 	});
 });
 
