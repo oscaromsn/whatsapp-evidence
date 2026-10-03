@@ -47,86 +47,88 @@ export async function extractZip(
 	const zipFilename = basename(zipPath);
 	const contactName = parseContactFromZipName(zipFilename);
 
-	// Extract everything to a temp directory first
+	// Extract everything to a temp directory first; it is removed even when
+	// extraction fails, so failed runs leave no `_extract_*` leftovers behind
 	const extractDir = join(cacheDir, `_extract_${Date.now()}`);
 	await Bun.$`mkdir -p ${extractDir}`.quiet();
 
 	try {
-		await Bun.$`unzip -o ${zipPath} -d ${extractDir}`.quiet();
-	} catch {
-		throw new Error(`Falha ao extrair o zip: ${zipFilename}`);
-	}
+		try {
+			await Bun.$`unzip -o ${zipPath} -d ${extractDir}`.quiet();
+		} catch {
+			throw new Error(`Falha ao extrair o zip: ${zipFilename}`);
+		}
 
-	// List extracted files (flat — WhatsApp zips don't have subdirectories)
-	let extractedFiles: string[];
-	try {
-		extractedFiles = await readdir(extractDir);
-	} catch {
-		throw new Error(`Falha ao ler os arquivos extraídos de: ${zipFilename}`);
-	}
+		// List extracted files (flat — WhatsApp zips don't have subdirectories)
+		let extractedFiles: string[];
+		try {
+			extractedFiles = await readdir(extractDir);
+		} catch {
+			throw new Error(`Falha ao ler os arquivos extraídos de: ${zipFilename}`);
+		}
 
-	if (extractedFiles.length === 0) {
-		throw new Error(`Arquivo zip vazio: ${zipFilename}`);
-	}
+		if (extractedFiles.length === 0) {
+			throw new Error(`Arquivo zip vazio: ${zipFilename}`);
+		}
 
-	// Find the chat log file
-	const chatLogName = findChatLog(extractedFiles);
-	if (!chatLogName) {
-		throw new Error(`Nenhum log de conversa encontrado em: ${zipFilename}`);
-	}
+		// Find the chat log file
+		const chatLogName = findChatLog(extractedFiles);
+		if (!chatLogName) {
+			throw new Error(`Nenhum log de conversa encontrado em: ${zipFilename}`);
+		}
 
-	// Read and decode the chat log
-	const rawChatLogPath = join(extractDir, chatLogName);
-	const chatContent = await Bun.file(rawChatLogPath).arrayBuffer();
-	const { text, encoding } = decodeText(Buffer.from(chatContent));
+		// Read and decode the chat log
+		const rawChatLogPath = join(extractDir, chatLogName);
+		const chatContent = await Bun.file(rawChatLogPath).arrayBuffer();
+		const { text, encoding } = decodeText(Buffer.from(chatContent));
 
-	// Save chat log to cache
-	const contactCacheDir = join(cacheDir, zipFilename.replace(/\.zip$/i, ""));
-	await Bun.$`mkdir -p ${contactCacheDir}`.quiet();
-	const chatLogPath = join(contactCacheDir, chatLogName);
-	await Bun.write(chatLogPath, text);
+		// Save chat log to cache
+		const contactCacheDir = join(cacheDir, zipFilename.replace(/\.zip$/i, ""));
+		await Bun.$`mkdir -p ${contactCacheDir}`.quiet();
+		const chatLogPath = join(contactCacheDir, chatLogName);
+		await Bun.write(chatLogPath, text);
 
-	// Move media files to medias dir
-	const mediaFiles: string[] = [];
-	const mediaNames = extractedFiles.filter((f) => f !== chatLogName);
+		// Move media files to medias dir
+		const mediaFiles: string[] = [];
+		const mediaNames = extractedFiles.filter((f) => f !== chatLogName);
 
-	if (mediaNames.length > 0) {
-		await Bun.$`mkdir -p ${mediasDir}`.quiet();
+		if (mediaNames.length > 0) {
+			await Bun.$`mkdir -p ${mediasDir}`.quiet();
 
-		for (const name of mediaNames) {
-			const srcPath = join(extractDir, name);
-			const targetPath = join(mediasDir, name);
+			for (const name of mediaNames) {
+				const srcPath = join(extractDir, name);
+				const targetPath = join(mediasDir, name);
 
-			const existingFile = Bun.file(targetPath);
-			if (await existingFile.exists()) {
-				// Collision: check if different size
-				const srcFile = Bun.file(srcPath);
-				if (srcFile.size !== existingFile.size) {
-					const prefix = await getZipPrefix(zipPath);
-					const prefixedPath = join(mediasDir, `${prefix}_${name}`);
-					await Bun.$`mv ${srcPath} ${prefixedPath}`.quiet();
-					mediaFiles.push(prefixedPath);
+				const existingFile = Bun.file(targetPath);
+				if (await existingFile.exists()) {
+					// Collision: check if different size
+					const srcFile = Bun.file(srcPath);
+					if (srcFile.size !== existingFile.size) {
+						const prefix = await getZipPrefix(zipPath);
+						const prefixedPath = join(mediasDir, `${prefix}_${name}`);
+						await Bun.$`mv ${srcPath} ${prefixedPath}`.quiet();
+						mediaFiles.push(prefixedPath);
+					} else {
+						// Same size — assume same file, skip
+						mediaFiles.push(targetPath);
+					}
 				} else {
-					// Same size — assume same file, skip
+					await Bun.$`mv ${srcPath} ${targetPath}`.quiet();
 					mediaFiles.push(targetPath);
 				}
-			} else {
-				await Bun.$`mv ${srcPath} ${targetPath}`.quiet();
-				mediaFiles.push(targetPath);
 			}
 		}
+
+		return {
+			contactName,
+			chatLogPath,
+			mediaFiles,
+			encoding,
+			zipFilename,
+		};
+	} finally {
+		await Bun.$`rm -rf ${extractDir}`.quiet().nothrow();
 	}
-
-	// Cleanup temp extraction dir
-	await Bun.$`rm -rf ${extractDir}`.quiet();
-
-	return {
-		contactName,
-		chatLogPath,
-		mediaFiles,
-		encoding,
-		zipFilename,
-	};
 }
 
 // ===== Internal Functions =====

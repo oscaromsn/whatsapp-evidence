@@ -148,6 +148,50 @@ describe("runIngest", () => {
 		await rm(singleZipDir, { recursive: true, force: true });
 	}, 30000);
 
+	test("a newer export under the same zip name keeps every message's own text", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "wae-reexport-"));
+		const zip = join(dir, "WhatsApp Chat - Ana.zip");
+		const exportZip = async (lines: string[]) => {
+			const stage = await mkdtemp(join(tmpdir(), "wae-reexport-stage-"));
+			await Bun.write(join(stage, "_chat.txt"), `${lines.join("\r\n")}\r\n`);
+			await rm(zip, { force: true });
+			await Bun.$`zip -q -j ${zip} ${join(stage, "_chat.txt")}`.quiet();
+			await rm(stage, { recursive: true, force: true });
+		};
+		const opts = defaultOptions({
+			input: dir,
+			split: "1w",
+			dateFormat: "DD/MM",
+		});
+
+		await exportZip([
+			"[01/09/26, 09:00:00] Ana: primeira",
+			"[01/09/26, 09:05:00] Oscar Neto: segunda",
+		]);
+		await runIngest(opts);
+		// Re-exported later: an older message the first export lacked, and a new one
+		await exportZip([
+			"[31/08/26, 18:00:00] Ana: antiga",
+			"[01/09/26, 09:00:00] Ana: primeira",
+			"[01/09/26, 09:05:00] Oscar Neto: segunda",
+			"[02/09/26, 10:00:00] Ana: nova",
+		]);
+		await runIngest(opts);
+
+		const index = await loadIndex(outputDir);
+		expect(Object.keys(index!.messages).length).toBe(4);
+		const md = await Bun.file(
+			join(outputDir, "2026.08.31-2026.09.06", "WhatsApp Chat - Ana.md"),
+		).text();
+		expect(md.split("\n").filter((l) => l.startsWith("`"))).toEqual([
+			"`18:00` **Ana:** antiga",
+			"`09:00` **Ana:** primeira",
+			"`09:05` **Eu:** segunda",
+			"`10:00` **Ana:** nova",
+		]);
+		await rm(dir, { recursive: true, force: true });
+	}, 30000);
+
 	test("incremental run skips already-ingested messages", async () => {
 		const singleZipDir = await mkdtemp(join(tmpdir(), "wae-incr-"));
 		await Bun.$`cp "${join(FIXTURES_DIR, "WhatsApp Chat with Bruno Teixeira.zip")}" ${singleZipDir}/`.quiet();

@@ -119,6 +119,10 @@ export interface MessageEntry {
 	mediaProcessed: boolean;
 	replyTo: string | null;
 	edited: boolean;
+	// Message text as parsed. Rendering uses it, so re-ingesting a newer export under
+	// the same zip name (which overwrites the cached log) cannot shift text between
+	// messages. Absent in indexes written before it was stored.
+	content?: string;
 	sourceZip: string;
 	sourceLineRange: [number, number];
 	period: string;

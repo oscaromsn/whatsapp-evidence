@@ -204,7 +204,9 @@ export function parseChatLog(
 	// Split on CRLF, lone CR, or LF. WhatsApp exports are commonly CRLF; a
 	// leftover trailing "\r" breaks the message-start regexes (the `.` in `(.*)$`
 	// does not match "\r", and `$` does not anchor before a lone "\r").
-	const lines = text.split(/\r\n|\r|\n/);
+	// The export's final line break is dropped first: otherwise it becomes part of
+	// the last message, which then differs from the same message in a later export.
+	const lines = text.replace(/(?:\r\n|\r|\n)+$/, "").split(/\r\n|\r|\n/);
 	const warnings: string[] = [];
 
 	// Detect date format if not provided

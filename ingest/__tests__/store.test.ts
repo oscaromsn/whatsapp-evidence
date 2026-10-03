@@ -317,6 +317,40 @@ describe("mergeMessages", () => {
 	});
 });
 
+describe("mergeMessages — message text", () => {
+	const merge = (index: EvidenceIndex, messages: ParsedMessage[]) =>
+		mergeMessages(index, "Ana", messages, "a.zip", "1w", "America/Sao_Paulo");
+
+	test("stores each message's text in the index", () => {
+		const index = createEmptyIndex(defaultConfig);
+		merge(index, [makeMsg({ content: "primeira" })]);
+		expect(Object.values(index.messages)[0]!.content).toBe("primeira");
+	});
+
+	test("backfills the text of entries written before it was stored", () => {
+		const index = createEmptyIndex(defaultConfig);
+		merge(index, [makeMsg({ content: "primeira" })]);
+		const entry = Object.values(index.messages)[0]!;
+		delete entry.content;
+		const result = merge(index, [makeMsg({ content: "primeira" })]);
+		expect(result.skipped).toBe(1);
+		expect(Object.values(index.messages)[0]!.content).toBe("primeira");
+	});
+
+	test("re-keys a last message stored with the old trailing line break", () => {
+		const index = createEmptyIndex(defaultConfig);
+		merge(index, [makeMsg({ content: "segunda\n" })]);
+		const [oldId] = Object.keys(index.messages);
+		const result = merge(index, [makeMsg({ content: "segunda" })]);
+		expect(result).toEqual({ added: 0, skipped: 1, upgraded: 0 });
+		const ids = Object.keys(index.messages);
+		expect(ids.length).toBe(1);
+		expect(ids[0]).not.toBe(oldId);
+		expect(index.messages[ids[0]!]!.content).toBe("segunda");
+		expect(index.messages[ids[0]!]!.seq).toBe(1);
+	});
+});
+
 describe("getLinkedMediaKeys", () => {
 	const index = createEmptyIndex(defaultConfig);
 	mergeMessages(

@@ -222,6 +222,25 @@ describe("iOS real-world quirks (CRLF + leading bidi marks)", () => {
 	});
 });
 
+describe("re-exports", () => {
+	test("the export's final line break is not part of the last message", () => {
+		const first = parseChatLog(
+			"[01/09/26, 09:00:00] Ana: primeira\r\n[01/09/26, 09:05:00] Oscar Neto: segunda\r\n",
+			{ dateFormat: "DD/MM" },
+		);
+		const later = parseChatLog(
+			"[01/09/26, 09:00:00] Ana: primeira\r\n[01/09/26, 09:05:00] Oscar Neto: segunda\r\n[02/09/26, 10:00:00] Ana: nova\r\n",
+			{ dateFormat: "DD/MM" },
+		);
+		expect(first.messages.map((m) => m.content)).toEqual([
+			"primeira",
+			"segunda",
+		]);
+		expect(later.messages[1]!.content).toBe(first.messages[1]!.content);
+		expect(first.warnings).toEqual([]);
+	});
+});
+
 describe("iOS media markers", () => {
 	const media = parseChatLog(IOS_MEDIA, { dateFormat: "DD/MM" }).messages;
 

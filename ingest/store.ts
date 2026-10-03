@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { join } from "node:path";
+import { writeFileAtomic } from "./atomic";
 import { sanitizeName } from "./contacts";
 import { computeMediaMatchKey, computeMessageId } from "./dedup";
 import { assignPeriod } from "./splitter";
@@ -47,7 +48,7 @@ export async function saveIndex(
 	index: EvidenceIndex,
 ): Promise<void> {
 	const indexPath = join(outputDir, INDEX_FILENAME);
-	await Bun.write(indexPath, JSON.stringify(index, null, 2));
+	await writeFileAtomic(indexPath, JSON.stringify(index, null, 2));
 }
 
 export function mergeMessages(
@@ -124,8 +125,26 @@ export function mergeMessages(
 			msg.mediaFile,
 		);
 
-		// Exact hash match — skip
-		if (index.messages[id]) {
+		// Exact hash match — skip, saving the text if this index predates it
+		const known = index.messages[id];
+		if (known) {
+			if (known.content === undefined) known.content = msg.content;
+			skipped++;
+			continue;
+		}
+
+		// Indexes written before the export's final line break was dropped keyed each
+		// chat's last message with a trailing "\n" — re-key it instead of duplicating it
+		const legacyId = computeMessageId(
+			msg.timestamp,
+			msg.sender,
+			`${msg.content}\n`,
+			msg.mediaFile,
+		);
+		const legacy = index.messages[legacyId];
+		if (legacy) {
+			delete index.messages[legacyId];
+			index.messages[id] = { ...legacy, content: msg.content };
 			skipped++;
 			continue;
 		}
@@ -151,6 +170,7 @@ export function mergeMessages(
 				mediaProcessed: false,
 				replyTo: msg.replyTo,
 				edited: msg.edited,
+				content: msg.content,
 				sourceZip: zipName,
 				sourceLineRange: msg.lineRange,
 				period,
@@ -181,6 +201,7 @@ export function mergeMessages(
 			mediaProcessed: false,
 			replyTo: msg.replyTo,
 			edited: msg.edited,
+			content: msg.content,
 			sourceZip: zipName,
 			sourceLineRange: msg.lineRange,
 			period,
@@ -318,7 +339,11 @@ export function getMessagesForPeriod(
 	contactName: string,
 	period: string,
 ): MessageEntry[] {
-	return Object.values(index.messages)
-		.filter((m) => m.contact === contactName && m.period === period)
-		.sort((a, b) => a.seq - b.seq);
+	return (
+		Object.values(index.messages)
+			.filter((m) => m.contact === contactName && m.period === period)
+			// Chronological: a newer export can bring older messages, which get higher
+			// seqs. seq still orders same-second messages as they appeared in the export.
+			.sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.seq - b.seq)
+	);
 }

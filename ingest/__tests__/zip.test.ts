@@ -7,7 +7,7 @@ import {
 	expect,
 	test,
 } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractZip, findZipFiles } from "../zip";
@@ -45,6 +45,22 @@ describe("findZipFiles", () => {
 });
 
 describe("extractZip", () => {
+	test("removes its temp folder even when extraction fails", async () => {
+		const stage = join(tempDir, "stage");
+		await Bun.$`mkdir -p ${stage}`.quiet();
+		await writeFile(join(stage, "IMG-0001.jpg"), "not a chat log");
+		const zipPath = join(tempDir, "WhatsApp Chat - Sem Log.zip");
+		await Bun.$`zip -q -j ${zipPath} ${join(stage, "IMG-0001.jpg")}`.quiet();
+
+		await expect(extractZip(zipPath, cacheDir, mediasDir)).rejects.toThrow(
+			"Nenhum log de conversa",
+		);
+		const leftovers = (await readdir(cacheDir)).filter((name) =>
+			name.startsWith("_extract_"),
+		);
+		expect(leftovers).toEqual([]);
+	});
+
 	test("extracts individual chat (text only)", async () => {
 		const zipPath = join(FIXTURES_DIR, "WhatsApp Chat with Bruno Teixeira.zip");
 		const result = await extractZip(zipPath, cacheDir, mediasDir);

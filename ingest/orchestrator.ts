@@ -6,6 +6,7 @@
 import { link, mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { logHeader } from "../shared";
+import { writeFileAtomic } from "./atomic";
 import { detectSelf } from "./contacts";
 import { deduplicateMessages } from "./dedup";
 import { processMediaFiles } from "./media";
@@ -415,7 +416,7 @@ async function renderContactMarkdown(
 			// Move media files into the period/contact medias dir
 			await ensureMediasDir(options.output, dir, index, contactName, period);
 
-			await Bun.write(outputPath, md);
+			await writeFileAtomic(outputPath, md);
 			log.verbose(`  Escrito: ${outputPath}`);
 		}
 	}
@@ -426,12 +427,15 @@ function toRenderedMessage(
 	chatLines: string[],
 	index: EvidenceIndex,
 ): RenderedMessage {
-	// Retrieve content from cached chat lines
+	// The text stored in the index is authoritative. Only entries written before it
+	// was stored fall back to the cached chat log, located by line range — which is
+	// only right while the cache still holds the export those lines came from.
 	const [startLine, endLine] = entry.sourceLineRange;
-	const contentLines = chatLines.slice(startLine - 1, endLine);
-	const rawContent = contentLines.join("\n");
+	const rawContent =
+		entry.content === undefined
+			? chatLines.slice(startLine - 1, endLine).join("\n")
+			: "";
 
-	// Detect media omitted BEFORE content extraction strips the markers.
 	// A media entry without a file is how the parser records an omitted
 	// attachment (Android "<Media omitted>" and iOS "image omitted" alike).
 	const isMediaOmitted =
@@ -439,7 +443,10 @@ function toRenderedMessage(
 		rawContent.includes("<Mídia oculta>") ||
 		(entry.type === "media" && !entry.mediaFile);
 
-	let content = extractMessageContent(rawContent);
+	let content =
+		entry.content === undefined
+			? extractMessageContent(rawContent)
+			: entry.content.replace(INLINE_BIDI_MARKS_RE, "");
 
 	if (!content) {
 		content = "";
